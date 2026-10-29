@@ -40,7 +40,7 @@ experience = "developer"
 setup = ""
 setup_check = ""                        # exits 0 when setup has run, e.g. "test -d node_modules"
 typecheck = ""                          # "" when the project has none
-test_file = ""                          # one test file: "{file}" is replaced
+test_file = "node --test {file}"        # one test file: "{file}" is replaced
 
 # Optional: parts of the project with their own typecheck or one-file test
 # command. Sessions get every package's command with the files it covers, plus
@@ -68,8 +68,9 @@ test_file = ""                          # one test file: "{file}" is replaced
 # restart loses at most one shard (`workflow evidence` resumes by head SHA).
 [[commands.suite]]
 name = "unit"
-run = "python -m pytest {files} -q"     # {files}: the shard's files, space-separated (required when files is set)
-files = "tests/test_*.py"               # glob(s) relative to the project root (even when cwd is set),
+# node prints 8 summary lines; the counts are repeated last, where the kit reads them.
+run = """o=$(node --test {files} 2>&1); s=$?; printf '%s\n' "$o"; printf '%s\n' "$o" | grep -E '^# (pass|fail|cancelled|skipped) '; exit $s"""  # {files}: the shard's files, space-separated (required when files is set)
+files = "tests/*.test.js"               # glob(s) relative to the project root (even when cwd is set),
                                         # comma-separated; "" runs `run` once
 group = 8                               # files per shard
 cwd = ""                                # optional: run in this directory (relative to the project root);
@@ -102,10 +103,10 @@ cwd = ""                                # optional: run in this directory (relat
 #     errors = '(\d+) errors? was not a part of any test'
 #     The failing tests are listed under "N failed", so with many failures that line can scroll
 #     out of the last 5; the shard still fails on its exit code.
-passed = '(\d+) passed'
-failed = '(\d+) failed'
-skipped = '(\d+) skipped'
-errors = '(\d+) errors?'
+passed = '# pass (\d+)'
+failed = '# fail (\d+)'
+skipped = '# skipped (\d+)'
+errors = '# cancelled (\d+)'
 
 [ci]
 # Required checks on the base branch, as their names show on a PR.
@@ -123,9 +124,9 @@ killed_markers = ["exit code 143", "The runner has received a shutdown signal", 
 # browser: drive the app in Chromium with Playwright; api: exercise the HTTP
 # API; cli: run the command line; none: no explorer.
 explorer = "browser"
-start = []                              # commands that start the stack and app(s)
+start = ["PORT=3000 node src/server.js"] # commands that start the stack and app(s)
 sizes = ["390x844", "1280x800"]         # phone and desktop
-notes = "A notes app starter with no app code yet: fill in `start` once the app exists."
+notes = "A notes app on Node.js with no dependencies: the server (src/server.js, from the notes spec) listens on PORT and serves the page at / and the API at /notes. Notes live in memory."
 
 [guard]
 # Paths a ticket session may not change (and a conductor only by a reviewed PR).
@@ -159,7 +160,8 @@ patterns = ['(?i)aws_secret_access_key\s*[:=]', '-----BEGIN [A-Z ]*PRIVATE KEY--
 # Areas ("lanes"): tickets carry `Area: <name>`; the conductor runs at most one
 # session per area unless the run state records an override. Globs are hints.
 [areas]
-# notes = ["server/notes.py", "app/lib/notes/**"]
+store = ["src/notes.js", "tests/notes.test.js", "package.json"]
+web = ["src/server.js", "src/public/**", "tests/server.test.js", "tests/page.test.js"]
 
 [repair]
 # Re-runnable environment repair: SessionStart, `workflow repair`, and before
