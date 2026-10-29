@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import type { Note } from "../src/shared/note";
+import { MAX_NOTE_LENGTH, type Note } from "../src/shared/note";
 import app from "../src/worker/index";
 
 const EMPTY = { error: "Write something before saving the note." };
@@ -124,8 +124,14 @@ describe("the notes API", () => {
     expect(tooLong.status).toBe(400);
   });
 
+  it("accepts the longest note even with every character written as \\u escapes", async () => {
+    const escaped = "\\ud83d\\udcdd".repeat(MAX_NOTE_LENGTH);
+    const res = await addNote(`{"text":"${escaped}"}`);
+    expect(res.status).toBe(201);
+  });
+
   it("refuses a very large request without reading it all", async () => {
-    const res = await addNote({ text: "a".repeat(200_000) });
+    const res = await addNote({ text: "a".repeat(MAX_NOTE_LENGTH * 12 + 1025) });
     expect(res.status).toBe(413);
     expect(await res.json()).toEqual(TOO_LONG);
     await expectNoNotes();

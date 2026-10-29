@@ -26,16 +26,15 @@ async function request<T>(path: string, init: RequestInit | undefined, failedMes
 }
 
 export async function fetchNotes(): Promise<Note[]> {
-  const failed = `Your notes couldn't be loaded. ${OFFLINE}`;
+  const loadFailed = "Your notes couldn't be loaded.";
   let notes: Note[];
   try {
-    notes = await request<Note[]>("/api/notes", undefined, failed);
+    notes = await request<Note[]>("/api/notes", undefined, OFFLINE);
   } catch (e) {
-    const message = (e as Error).message;
-    throw new Error(message === failed ? failed : `Your notes couldn't be loaded. ${message}`);
+    throw new Error(`${loadFailed} ${(e as Error).message}`);
   }
   // Anything but a list isn't an answer this page can show.
-  if (!Array.isArray(notes)) throw new Error(failed);
+  if (!Array.isArray(notes)) throw new Error(`${loadFailed} ${OFFLINE}`);
   return notes;
 }
 

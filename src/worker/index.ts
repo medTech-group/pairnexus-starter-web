@@ -6,9 +6,10 @@ import { addNote, listNotes } from "./notes";
 const EMPTY = "Write something before saving the note.";
 const TOO_LONG = `That note is too long: keep it to ${MAX_NOTE_LENGTH} characters or fewer.`;
 
-// Room for the longest note however it is written: even sent as \u escapes,
-// 5000 characters fit in 64 KB. Anything bigger is refused before it is read.
-const MAX_BODY_BYTES = 64 * 1024;
+// Room for the longest note however it is written: a character sent as two \u
+// escapes takes 12 bytes, plus 1 KB for the rest. Anything bigger is refused
+// before it is read. It follows MAX_NOTE_LENGTH if that changes.
+const MAX_BODY_BYTES = MAX_NOTE_LENGTH * 12 + 1024;
 
 // The API, under /api. Everything else is the page Vite builds (wrangler.toml's [assets]).
 const app = new Hono<{ Bindings: Env }>().basePath("/api");
