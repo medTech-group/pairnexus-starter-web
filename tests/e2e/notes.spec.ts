@@ -1,6 +1,8 @@
-import { expect, type Page, test } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { expect, type Page, type Request, test } from "@playwright/test";
 
-// Made-up text only: real notes are private.
+// Made-up text only: real notes are private. Each note's text carries a random id, since
+// the tests share one database and may run side by side.
 
 async function openNotes(page: Page) {
   await page.goto("/");
@@ -9,8 +11,8 @@ async function openNotes(page: Page) {
   await expect(page.getByText("Loading your notes…")).toBeHidden();
 }
 
-test("adds a note and finds it listed", async ({ page }, testInfo) => {
-  const text = `Pick up the blue umbrella (${testInfo.project.name} ${Date.now()})`;
+test("adds a note and finds it listed", async ({ page }) => {
+  const text = `Pick up the blue umbrella (${randomUUID()})`;
 
   await openNotes(page);
   await page.getByLabel("New note").fill(text);
@@ -45,10 +47,10 @@ test("says when a note is too long, and keeps its text", async ({ page }) => {
 test("a slow first load can't hide a note just saved", async ({ page }) => {
   let release!: () => void;
   const released = new Promise<void>((resolve) => (release = resolve));
-  let firstLoad = true;
+  let held: Request | undefined;
   await page.route("**/api/notes", async (route) => {
-    if (route.request().method() === "GET" && firstLoad) {
-      firstLoad = false;
+    if (route.request().method() === "GET" && !held) {
+      held = route.request();
       await released;
       await route.fulfill({ json: [] });
     } else {
@@ -56,21 +58,19 @@ test("a slow first load can't hide a note just saved", async ({ page }) => {
     }
   });
 
-  const firstLoadAnswered = page.waitForEvent(
-    "requestfinished",
-    (r) => r.method() === "GET" && r.url().endsWith("/api/notes"),
-  );
   await page.goto("/");
   await expect(page.getByText("Loading your notes…")).toBeVisible();
-  const text = `Made-up note saved during a slow load (${Date.now()})`;
+  const text = `Made-up note saved during a slow load (${randomUUID()})`;
   await page.getByLabel("New note").fill(text);
   await page.getByRole("button", { name: "Save note" }).click();
   const list = page.getByRole("list", { name: "Your notes" });
   await expect(list.getByText(text)).toBeVisible();
 
-  // Let the old, empty answer arrive, then give the page a frame to show it if it would.
+  // Let the old, empty answer arrive, then give the page two frames to show it if it would.
+  const heldAnswered = page.waitForEvent("requestfinished", (r) => r === held);
   release();
-  await firstLoadAnswered;
+  await heldAnswered;
+  await page.evaluate(() => new Promise(requestAnimationFrame));
   await page.evaluate(() => new Promise(requestAnimationFrame));
   await expect(list.getByText(text)).toBeVisible();
 });
@@ -141,12 +141,12 @@ test("says plainly when the server can't be reached", async ({ page }) => {
   await page.getByLabel("New note").fill("Made-up note while offline");
   await page.getByRole("button", { name: "Save note" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "saved" })).toHaveText(
-    "The note couldn't be saved. Check your connection and try again.",
+    "The connection dropped, so the note may not have been saved. Check your notes before saving it again.",
   );
 });
 
-test("shows every note again after saving, even if the list failed to load at first", async ({ page }, testInfo) => {
-  const earlier = `Made-up earlier note (${testInfo.project.name} ${Date.now()})`;
+test("shows every note again after saving, even if the list failed to load at first", async ({ page }) => {
+  const earlier = `Made-up earlier note (${randomUUID()})`;
   await openNotes(page);
   await page.getByLabel("New note").fill(earlier);
   await page.getByRole("button", { name: "Save note" }).click();
@@ -164,11 +164,12 @@ test("shows every note again after saving, even if the list failed to load at fi
   await page.reload();
   await expect(page.getByRole("alert")).toContainText("Your notes couldn't be loaded");
 
-  await page.getByLabel("New note").fill("Made-up later note");
+  const later = `Made-up later note (${randomUUID()})`;
+  await page.getByLabel("New note").fill(later);
   await page.getByRole("button", { name: "Save note" }).click();
   const list = page.getByRole("list", { name: "Your notes" });
   await expect(list.getByText(earlier)).toBeVisible();
-  await expect(list.getByText("Made-up later note").first()).toBeVisible();
+  await expect(list.getByText(later)).toBeVisible();
 });
 
 test("says plainly when the list comes back in a shape it doesn't know", async ({ page }) => {
@@ -180,8 +181,8 @@ test("says plainly when the list comes back in a shape it doesn't know", async (
   await expect(page.getByRole("heading", { name: "Notes" })).toBeVisible();
 });
 
-test("keeps the list on screen if reloading it after a save fails", async ({ page }, testInfo) => {
-  const earlier = `Made-up note already listed (${testInfo.project.name} ${Date.now()})`;
+test("keeps the list on screen if reloading it after a save fails", async ({ page }) => {
+  const earlier = `Made-up note already listed (${randomUUID()})`;
   await openNotes(page);
   await page.getByLabel("New note").fill(earlier);
   await page.getByRole("button", { name: "Save note" }).click();
@@ -240,18 +241,18 @@ test("shows it is trying again, and says so again if it fails again", async ({ p
   await expect(page.getByRole("alert")).toContainText("Your notes couldn't be loaded");
 });
 
-test("if the answer to a save is lost, shows whether the note landed", async ({ page }, testInfo) => {
+test("if the answer to a save is lost, shows whether the note landed", async ({ page }) => {
   await openNotes(page);
   await page.route("**/api/notes", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     await route.fetch(); // The note reaches the server and is stored...
     await route.abort(); // ...but its answer never reaches the page.
   });
-  const text = `Made-up note whose answer was lost (${testInfo.project.name} ${Date.now()})`;
+  const text = `Made-up note whose answer was lost (${randomUUID()})`;
   await page.getByLabel("New note").fill(text);
   await page.getByRole("button", { name: "Save note" }).click();
   await expect(page.getByRole("alert")).toHaveText(
-    "The note couldn't be saved. Check your connection and try again.",
+    "The connection dropped, so the note may not have been saved. Check your notes before saving it again.",
   );
   await expect(page.getByRole("list", { name: "Your notes" }).getByText(text)).toBeVisible();
 });

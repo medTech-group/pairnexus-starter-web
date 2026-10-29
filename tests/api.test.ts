@@ -64,6 +64,7 @@ describe("the notes API", () => {
   it("keeps accents written as separate marks", async () => {
     const added = await addNote({ text: "Cafe\u0301 au lait" });
     expect(added.status).toBe(201);
+    expect(((await added.json()) as Note).text).toBe("Cafe\u0301 au lait");
   });
 
   it("trims the spaces around a note's text", async () => {

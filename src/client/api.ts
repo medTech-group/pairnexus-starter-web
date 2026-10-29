@@ -46,6 +46,7 @@ export function saveNote(text: string): Promise<Note> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     },
-    `The note couldn't be saved. ${OFFLINE}`,
+    // With no answer we can't tell whether the note arrived, so the person checks first.
+    "The connection dropped, so the note may not have been saved. Check your notes before saving it again.",
   );
 }
