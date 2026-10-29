@@ -56,6 +56,10 @@ test("a slow first load can't hide a note just saved", async ({ page }) => {
     }
   });
 
+  const firstLoadAnswered = page.waitForEvent(
+    "requestfinished",
+    (r) => r.method() === "GET" && r.url().endsWith("/api/notes"),
+  );
   await page.goto("/");
   await expect(page.getByText("Loading your notes…")).toBeVisible();
   const text = `Made-up note saved during a slow load (${Date.now()})`;
@@ -64,8 +68,10 @@ test("a slow first load can't hide a note just saved", async ({ page }) => {
   const list = page.getByRole("list", { name: "Your notes" });
   await expect(list.getByText(text)).toBeVisible();
 
+  // Let the old, empty answer arrive, then give the page a frame to show it if it would.
   release();
-  await page.waitForTimeout(300);
+  await firstLoadAnswered;
+  await page.evaluate(() => new Promise(requestAnimationFrame));
   await expect(list.getByText(text)).toBeVisible();
 });
 
@@ -211,4 +217,39 @@ test("offers to try loading the notes again", async ({ page }) => {
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByText("Loading your notes…")).toBeHidden();
+});
+
+test("shows it is trying again, and says so again if it fails again", async ({ page }) => {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let loads = 0;
+  await page.route("**/api/notes", async (route) => {
+    loads += 1;
+    if (loads > 1) await released;
+    await route.abort();
+  });
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText("Your notes couldn't be loaded");
+
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByText("Loading your notes…")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  release();
+  await expect(page.getByRole("alert")).toContainText("Your notes couldn't be loaded");
+});
+
+test("if the answer to a save is lost, shows whether the note landed", async ({ page }, testInfo) => {
+  await openNotes(page);
+  await page.route("**/api/notes", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fetch(); // The note reaches the server and is stored...
+    await route.abort(); // ...but its answer never reaches the page.
+  });
+  const text = `Made-up note whose answer was lost (${testInfo.project.name} ${Date.now()})`;
+  await page.getByLabel("New note").fill(text);
+  await page.getByRole("button", { name: "Save note" }).click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "The note couldn't be saved. Check your connection and try again.",
+  );
+  await expect(page.getByRole("list", { name: "Your notes" }).getByText(text)).toBeVisible();
 });

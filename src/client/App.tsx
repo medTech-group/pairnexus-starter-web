@@ -43,6 +43,9 @@ export function App() {
       void loadNotes();
     } catch (e) {
       setSaveError((e as Error).message);
+      // The note may have been saved even though its answer was lost: the list shows
+      // whether it was, before the person saves it again.
+      void loadNotes();
     } finally {
       setSaving(false);
       // Ready for the next note, for keyboard users too: the button was disabled while saving.
@@ -78,7 +81,14 @@ export function App() {
       {loadError && (
         <div className="load-error">
           <p role="alert">{loadError}</p>
-          <button type="button" onClick={() => void loadNotes()}>
+          <button
+            type="button"
+            onClick={() => {
+              // Cleared first, so a repeat failure shows (and is read out) again.
+              setLoadError(null);
+              void loadNotes();
+            }}
+          >
             Try again
           </button>
         </div>
