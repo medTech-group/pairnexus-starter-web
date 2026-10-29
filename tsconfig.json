@@ -1,0 +1,11 @@
+{
+  // The page (React in the browser). tsconfig.worker.json covers the Worker,
+  // tsconfig.node.json the config files and the browser check.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
+  },
+  "include": ["src/client"]
+}

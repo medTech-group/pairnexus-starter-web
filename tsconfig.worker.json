@@ -1,0 +1,9 @@
+{
+  // The Worker and its API tests, which run in the Workers runtime.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"]
+  },
+  "include": ["src/worker", "tests/*.ts", "worker-configuration.d.ts"]
+}

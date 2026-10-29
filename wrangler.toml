@@ -1,0 +1,24 @@
+# The Worker's settings, read by Wrangler (Cloudflare's command-line tool).
+name = "pairnexus-starter-web"
+main = "src/worker/index.ts"
+compatibility_date = "2026-10-01"
+
+# No live site: nothing deploys `main` to a public address. Each pull request
+# gets its own try-it link instead, once Cloudflare is connected.
+workers_dev = false
+preview_urls = true
+
+# The page built by Vite. The Worker answers /api/*; everything else is the page.
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+# The notes database. Locally, Wrangler keeps it in .wrangler/.
+[[d1_databases]]
+binding = "DB"
+database_name = "notes"
+migrations_dir = "migrations"
+
+# Cloudflare's preview builds need this block, even empty.
+[previews]

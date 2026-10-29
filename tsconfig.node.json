@@ -1,0 +1,9 @@
+{
+  // The config files and the browser check, which run in Node.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts", "vitest.config.ts", "playwright.config.ts", "tests/e2e"]
+}
