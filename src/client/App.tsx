@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { MAX_NOTE_LENGTH, type Note } from "../shared/note";
+import type { Note } from "../shared/note";
 import { fetchNotes, saveNote } from "./api";
 
 export function App() {
@@ -21,9 +21,7 @@ export function App() {
       setNotes(loaded);
       setLoadError(null);
     } catch (e) {
-      if (load !== latestLoad.current) return;
-      const message = (e as Error).message;
-      setLoadError(message.startsWith("Your notes") ? message : `Your notes couldn't be loaded. ${message}`);
+      if (load === latestLoad.current) setLoadError((e as Error).message);
     }
   }, []);
 
@@ -41,7 +39,8 @@ export function App() {
       await saveNote(text);
       setText("");
       setSaved(true);
-      await loadNotes();
+      // Not awaited: the box is ready for the next note while the list reloads.
+      void loadNotes();
     } catch (e) {
       setSaveError((e as Error).message);
     } finally {
@@ -66,7 +65,6 @@ export function App() {
             setSaved(false);
           }}
           readOnly={saving}
-          maxLength={MAX_NOTE_LENGTH}
           rows={3}
         />
         <button type="submit" disabled={saving}>

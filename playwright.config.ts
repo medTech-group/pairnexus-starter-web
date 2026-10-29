@@ -17,7 +17,7 @@ export default defineConfig({
     { name: "phone", use: { ...devices["Pixel 7"] } },
   ],
   webServer: {
-    command: `npm run build && rm -rf .wrangler/e2e && wrangler d1 migrations apply DB --local --persist-to .wrangler/e2e && wrangler dev --port ${port} --persist-to .wrangler/e2e`,
+    command: `npm run build && rm -rf .wrangler/e2e && npm run db:migrate -- --persist-to .wrangler/e2e && wrangler dev --port ${port} --persist-to .wrangler/e2e`,
     url: `http://localhost:${port}`,
     reuseExistingServer: false,
     timeout: 120_000,

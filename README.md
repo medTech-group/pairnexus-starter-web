@@ -1,7 +1,9 @@
 # pairnexus-starter-web
 
 A small notes app to start your own project from: write a note, save it, and see it in the list.
+
 To try it, open the try-it link on any pull request (it appears once Cloudflare is connected).
+
 New to building? Start with the workflow kit's quickstart, in [the kit's README](https://github.com/medTech-group/pairnexus-workflow#readme).
 
 There is no live site yet: nothing is published at a public address. That comes later.

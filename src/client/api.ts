@@ -3,29 +3,40 @@
 import type { Note } from "../shared/note";
 
 const OFFLINE = "Check your connection and try again.";
+const UNKNOWN = "Something went wrong. Please try again.";
 
-async function request(input: string, init: RequestInit | undefined, offline: string): Promise<Response> {
+/** The answer's JSON, or an Error with a plain message: the server's own, else `failedMessage`. */
+async function request<T>(path: string, init: RequestInit | undefined, failedMessage: string): Promise<T> {
   let res: Response;
+  let body: unknown;
   try {
-    res = await fetch(input, init);
+    res = await fetch(path, init);
+    body = await res.json().catch(() => undefined);
   } catch {
     // The browser's own message ("Failed to fetch") means nothing to a person.
-    throw new Error(offline);
+    throw new Error(failedMessage);
   }
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
-    throw new Error(typeof body?.error === "string" ? body.error : "Something went wrong. Please try again.");
+    const error = (body as { error?: unknown } | undefined)?.error;
+    throw new Error(typeof error === "string" ? error : UNKNOWN);
   }
-  return res;
+  // A success we can't read (a Wi-Fi sign-in page, say) is treated as no answer at all.
+  if (body === undefined) throw new Error(failedMessage);
+  return body as T;
 }
 
 export async function fetchNotes(): Promise<Note[]> {
-  const res = await request("/api/notes", undefined, `Your notes couldn't be loaded. ${OFFLINE}`);
-  return (await res.json()) as Note[];
+  const failed = `Your notes couldn't be loaded. ${OFFLINE}`;
+  try {
+    return await request<Note[]>("/api/notes", undefined, failed);
+  } catch (e) {
+    const message = (e as Error).message;
+    throw new Error(message === failed ? failed : `Your notes couldn't be loaded. ${message}`);
+  }
 }
 
-export async function saveNote(text: string): Promise<Note> {
-  const res = await request(
+export function saveNote(text: string): Promise<Note> {
+  return request<Note>(
     "/api/notes",
     {
       method: "POST",
@@ -34,5 +45,4 @@ export async function saveNote(text: string): Promise<Note> {
     },
     `The note couldn't be saved. ${OFFLINE}`,
   );
-  return (await res.json()) as Note;
 }

@@ -54,6 +54,13 @@ describe("the notes API", () => {
     expect(notes.map((n) => n.text)).toEqual(["First made-up note", "Second made-up note"]);
   });
 
+  it("keeps invisible joiners inside a note, as in a family emoji", async () => {
+    const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
+    const added = await addNote({ text: `Made-up note ${family}` });
+    expect(added.status).toBe(201);
+    expect(((await added.json()) as Note).text).toBe(`Made-up note ${family}`);
+  });
+
   it("trims the spaces around a note's text", async () => {
     const added = await addNote({ text: "  Water the plants \n" });
     expect(((await added.json()) as Note).text).toBe("Water the plants");
@@ -62,6 +69,7 @@ describe("the notes API", () => {
   it.each([
     ["blank text", { text: "" }],
     ["only spaces", { text: "   \n\t " }],
+    ["only invisible characters", { text: " \u200B\u200D\u2060 " }],
     ["no text at all", {}],
     ["text that isn't words", { text: 42 }],
     ["a body of null", null],

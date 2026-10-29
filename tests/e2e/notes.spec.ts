@@ -32,10 +32,65 @@ test("refuses an empty note with a plain message", async ({ page }) => {
   await expect(page.getByRole("alert")).toHaveText("Write something before saving the note.");
 });
 
-test("stops typing at 5000 characters", async ({ page }) => {
+test("says when a note is too long, and keeps its text", async ({ page }) => {
   await openNotes(page);
   await page.getByLabel("New note").fill("a".repeat(5001));
-  await expect(page.getByLabel("New note")).toHaveValue("a".repeat(5000));
+  await page.getByRole("button", { name: "Save note" }).click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "That note is too long: keep it to 5000 characters or fewer.",
+  );
+  await expect(page.getByLabel("New note")).toHaveValue("a".repeat(5001));
+});
+
+test("a slow first load can't hide a note just saved", async ({ page }) => {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let firstLoad = true;
+  await page.route("**/api/notes", async (route) => {
+    if (route.request().method() === "GET" && firstLoad) {
+      firstLoad = false;
+      await released;
+      await route.fulfill({ json: [] });
+    } else {
+      await route.continue();
+    }
+  });
+
+  await page.goto("/");
+  await expect(page.getByText("Loading your notes…")).toBeVisible();
+  const text = `Made-up note saved during a slow load (${Date.now()})`;
+  await page.getByLabel("New note").fill(text);
+  await page.getByRole("button", { name: "Save note" }).click();
+  const list = page.getByRole("list", { name: "Your notes" });
+  await expect(list.getByText(text)).toBeVisible();
+
+  release();
+  await page.waitForTimeout(300);
+  await expect(list.getByText(text)).toBeVisible();
+});
+
+test("is ready for the next note even while the list is still reloading", async ({ page }) => {
+  await openNotes(page);
+  await page.route("**/api/notes", async (route) => {
+    // The list never finishes reloading after the save.
+    if (route.request().method() === "GET") return;
+    await route.continue();
+  });
+  await page.getByLabel("New note").fill("Made-up note before a slow reload");
+  await page.getByRole("button", { name: "Save note" }).click();
+  await expect(page.getByRole("status")).toHaveText("Note saved.");
+  await expect(page.getByRole("button", { name: "Save note" })).toBeEnabled();
+  await expect(page.getByLabel("New note")).toBeEditable();
+});
+
+test("says plainly when the answer can't be read", async ({ page }) => {
+  await page.route("**/api/notes", (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><p>Sign in to the Wi-Fi</p>" }),
+  );
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toHaveText(
+    "Your notes couldn't be loaded. Check your connection and try again.",
+  );
 });
 
 test("answers an unknown API address with a plain 404, not the page", async ({ request }) => {

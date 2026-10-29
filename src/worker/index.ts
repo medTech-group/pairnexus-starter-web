@@ -26,7 +26,8 @@ app.post(
     const body: unknown = await c.req.json().catch(() => null);
     const raw = body && typeof body === "object" && "text" in body ? body.text : undefined;
     const text = typeof raw === "string" ? raw.trim() : "";
-    if (!text) {
+    // Blank if nothing is left once the invisible characters (zero-width spaces and the like) go.
+    if (!text.replace(/\p{Cf}/gu, "").trim()) {
       return c.json({ error: EMPTY }, 400);
     }
     // Counted in characters, so an emoji counts as one.
