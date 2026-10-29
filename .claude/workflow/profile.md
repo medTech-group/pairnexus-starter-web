@@ -22,4 +22,4 @@ The guard checks outward GitHub posts against `[sensitive].patterns` in `profile
 
 ## Anything else sessions should know
 
-- The repository is a starter with no app code yet: no dependencies, build, tests or start command. As they arrive, fill in `[commands]` (setup, typecheck, the suites), `ci.required_checks` and `ui.start` in `profile.toml`. Until then the `unit` suite is the template's placeholder and matches no file.
+- The notes app is plain Node.js 22 with no dependencies (nothing to install, no build, no typecheck): tests run with `node --test` over `tests/*.test.js`, and `node src/server.js` starts it on `PORT` (default 3000). Notes live in memory, so a restart empties them. Until the notes spec's tickets add the files, the `unit` suite and the areas' globs match nothing.
