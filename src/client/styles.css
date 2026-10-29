@@ -80,3 +80,8 @@ time {
   font-size: 0.85rem;
   color: #656d76;
 }
+
+[role="status"] {
+  margin: 0;
+  color: #1a7f37;
+}

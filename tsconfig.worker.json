@@ -5,5 +5,5 @@
     "lib": ["ES2022"],
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"]
   },
-  "include": ["src/worker", "tests/*.ts", "worker-configuration.d.ts"]
+  "include": ["src/worker", "src/shared", "tests/*.ts", "worker-configuration.d.ts"]
 }

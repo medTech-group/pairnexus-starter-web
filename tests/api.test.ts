@@ -1,23 +1,29 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import type { Note } from "../src/shared/note";
 import app from "../src/worker/index";
 
-type Note = { id: number; text: string; createdAt: string };
+const EMPTY = { error: "Write something before saving the note." };
+const TOO_LONG = { error: "That note is too long: keep it to 5000 characters or fewer." };
 
 function listNotes() {
   return app.request("/api/notes", {}, env);
 }
 
-function addNote(body: unknown) {
+function addNote(body: unknown, contentType = "application/json") {
   return app.request(
     "/api/notes",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": contentType },
       body: typeof body === "string" ? body : JSON.stringify(body),
     },
     env,
   );
+}
+
+async function expectNoNotes() {
+  expect(await (await listNotes()).json()).toEqual([]);
 }
 
 describe("the notes API", () => {
@@ -58,24 +64,39 @@ describe("the notes API", () => {
     ["only spaces", { text: "   \n\t " }],
     ["no text at all", {}],
     ["text that isn't words", { text: 42 }],
+    ["a body of null", null],
+    ["a list instead of a note", [{ text: "Made-up note in a list" }]],
   ])("refuses an empty note (%s) with a plain message", async (_, body) => {
     const res = await addNote(body);
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Write something before saving the note." });
-    expect(await (await listNotes()).json()).toEqual([]);
+    expect(await res.json()).toEqual(EMPTY);
+    await expectNoNotes();
   });
 
-  it("refuses a request that isn't JSON", async () => {
-    const res = await addNote("not json");
+  it("refuses a body that isn't valid JSON", async () => {
+    const res = await addNote("{not json");
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Write something before saving the note." });
+    expect(await res.json()).toEqual(EMPTY);
+    await expectNoNotes();
+  });
+
+  it("refuses a note that isn't sent as JSON", async () => {
+    const res = await addNote({ text: "Made-up note sent as a form" }, "text/plain");
+    expect(res.status).toBe(415);
+    expect(await res.json()).toEqual({ error: "Send the note as JSON." });
+    await expectNoNotes();
+  });
+
+  it("accepts JSON sent with a charset", async () => {
+    const res = await addNote({ text: "Made-up note with a charset" }, "application/json; charset=utf-8");
+    expect(res.status).toBe(201);
   });
 
   it("refuses a note longer than 5000 characters", async () => {
     const res = await addNote({ text: "a".repeat(5001) });
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "That note is too long: keep it under 5000 characters." });
-    expect(await (await listNotes()).json()).toEqual([]);
+    expect(await res.json()).toEqual(TOO_LONG);
+    await expectNoNotes();
   });
 
   it("accepts a note of exactly 5000 characters", async () => {
@@ -83,9 +104,32 @@ describe("the notes API", () => {
     expect(res.status).toBe(201);
   });
 
+  it("counts an emoji as one character", async () => {
+    const res = await addNote({ text: "\u{1F4DD}".repeat(5000) });
+    expect(res.status).toBe(201);
+    const tooLong = await addNote({ text: "\u{1F4DD}".repeat(5001) });
+    expect(tooLong.status).toBe(400);
+  });
+
+  it("refuses a very large request without reading it all", async () => {
+    const res = await addNote({ text: "a".repeat(200_000) });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual(TOO_LONG);
+    await expectNoNotes();
+  });
+
+  it("answers an unexpected failure with a plain message that gives nothing away", async () => {
+    await env.DB.exec("DROP TABLE notes");
+    const res = await addNote({ text: "Made-up note for a broken database" });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Something went wrong. Please try again." });
+  });
+
   it("answers an unknown API address with a plain 404", async () => {
-    const res = await app.request("/api/nothing-here", {}, env);
-    expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "Not found." });
+    for (const path of ["/api", "/api/nothing-here"]) {
+      const res = await app.request(path, {}, env);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "Not found." });
+    }
   });
 });

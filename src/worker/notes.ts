@@ -1,8 +1,6 @@
 // The notes, as the API stores and reads them in D1.
 
-export type Note = { id: number; text: string; createdAt: string };
-
-export const MAX_NOTE_LENGTH = 5000;
+import type { Note } from "../shared/note";
 
 type NoteRow = { id: number; text: string; created_at: string };
 

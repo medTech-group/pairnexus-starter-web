@@ -10,13 +10,16 @@ There is no live site yet: nothing is published at a public address. That comes 
 
 | Where | What it does |
 |---|---|
-| `src/client/` | The page you see: a form to write a note and the list of notes (React). |
-| `src/worker/` | The server: `GET /api/notes` lists the notes, `POST /api/notes` saves one (Hono, on a Cloudflare Worker). |
-| `migrations/` | The database's tables, one numbered file per change (D1, Cloudflare's database). |
-| `wrangler.toml` | The Worker's settings: its name, the page it serves and its database. |
-| `tests/` | The checks: `api.test.ts` tries the server, `e2e/` uses the page in a browser. |
+| `src/client/` | The page you see: a box to write a note, a button to save it, and the list of notes. |
+| `src/worker/` | The server: it hands the page the list of notes, and saves each new one. |
+| `src/shared/` | What a note looks like, used by both the page and the server. |
+| `migrations/` | How the notes are stored, one numbered file per change. |
+| `wrangler.toml` | The app's settings for Cloudflare: its name, the page it shows and where notes are stored. |
+| `tests/` | The checks: `api.test.ts` tries the server on its own, `e2e/` uses the page in a browser. |
 
-A note has an id, its text (up to 5000 characters) and the time it was made. An empty note is refused with a plain message.
+A note has a number, its text (up to 5000 characters) and the time it was made. An empty note is refused with a plain message.
+
+The tools, for the curious: the page is made with React and Vite, the server with Hono on a Cloudflare Worker, and notes are kept in D1, Cloudflare's database.
 
 ## Running it on your computer
 
@@ -25,8 +28,8 @@ You need Node.js 22 or later. No Cloudflare account is needed: everything runs l
 ```sh
 npm ci                           # install
 npm run dev                      # build the page, set up the local database, open http://localhost:8787
-npm run typecheck                # check the types
-npm test                         # the server's checks (Vitest, in Cloudflare's Workers runtime)
+npm run typecheck                # check the code for mistakes before running it
+npm test                         # the server's checks
 npx playwright install chromium  # once, for the browser check
 npm run test:e2e                 # the browser check (Playwright)
 ```
