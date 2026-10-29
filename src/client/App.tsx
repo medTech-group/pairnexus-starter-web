@@ -87,6 +87,8 @@ export function App() {
               // Cleared first, so a repeat failure shows (and is read out) again.
               setLoadError(null);
               void loadNotes();
+              // The button goes away once the notes load; keyboard users go back to the box.
+              textBox.current?.focus();
             }}
           >
             Try again

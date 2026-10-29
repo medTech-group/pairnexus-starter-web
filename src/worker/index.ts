@@ -11,6 +11,15 @@ const TOO_LONG = `That note is too long: keep it to ${MAX_NOTE_LENGTH} character
 // before it is read. It follows MAX_NOTE_LENGTH if that changes.
 const MAX_BODY_BYTES = MAX_NOTE_LENGTH * 12 + 1024;
 
+// Characters that show nothing on their own: zero-width and control characters, marks
+// with no letter under them, and the filler characters that render as a blank space.
+const INVISIBLE = /[\p{Cf}\p{Cc}\p{Mn}\p{Me}\u115F\u1160\u3164\uFFA0\u2800]/gu;
+
+/** True when nothing visible is left once the invisible characters and spaces go. */
+function isBlank(text: string): boolean {
+  return !text.replace(INVISIBLE, "").trim();
+}
+
 // The API, under /api. Everything else is the page Vite builds (wrangler.toml's [assets]).
 const app = new Hono<{ Bindings: Env }>().basePath("/api");
 
@@ -28,8 +37,7 @@ app.post(
     const body: unknown = await c.req.json().catch(() => null);
     const raw = body && typeof body === "object" && "text" in body ? body.text : undefined;
     const text = typeof raw === "string" ? raw.trim() : "";
-    // Blank if nothing is left once the invisible characters (zero-width spaces and the like) go.
-    if (!text.replace(/\p{Cf}/gu, "").trim()) {
+    if (isBlank(text)) {
       return c.json({ error: EMPTY }, 400);
     }
     // Counted in characters, so an emoji counts as one.

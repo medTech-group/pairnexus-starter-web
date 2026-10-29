@@ -61,6 +61,11 @@ describe("the notes API", () => {
     expect(((await added.json()) as Note).text).toBe(`Made-up note ${family}`);
   });
 
+  it("keeps accents written as separate marks", async () => {
+    const added = await addNote({ text: "Cafe\u0301 au lait" });
+    expect(added.status).toBe(201);
+  });
+
   it("trims the spaces around a note's text", async () => {
     const added = await addNote({ text: "  Water the plants \n" });
     expect(((await added.json()) as Note).text).toBe("Water the plants");
@@ -70,6 +75,9 @@ describe("the notes API", () => {
     ["blank text", { text: "" }],
     ["only spaces", { text: "   \n\t " }],
     ["only invisible characters", { text: " \u200B\u200D\u2060 " }],
+    ["only fillers that show as blank", { text: "\u3164\u2800\u2800\u115F\u1160\uFFA0" }],
+    ["only control characters", { text: "\u0000\u0007\b" }],
+    ["only marks with no letter", { text: "\uFE0F\uFE0F\u034F" }],
     ["no text at all", {}],
     ["text that isn't words", { text: 42 }],
     ["a body of null", null],

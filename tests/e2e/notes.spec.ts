@@ -217,6 +217,8 @@ test("offers to try loading the notes again", async ({ page }) => {
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByText("Loading your notes…")).toBeHidden();
+  // The button is gone, so keyboard users are put back in the box, not lost.
+  await expect(page.getByLabel("New note")).toBeFocused();
 });
 
 test("shows it is trying again, and says so again if it fails again", async ({ page }) => {
