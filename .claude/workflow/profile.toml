@@ -184,8 +184,8 @@ review_rounds = 3
 # above) or thorough (docs/charter.md). Attended builds never read it.
 preset = "normal"
 # The claude.ai environments, by name (docs/enforcement.md section 2).
-ticket_environment = ""                 # no credentials; WORKFLOW_ROLE=ticket
-conductor_environment = ""              # WORKFLOW_ROLE=conductor; release credentials only if wanted
+ticket_environment = "workflow-ticket"               # no credentials; WORKFLOW_ROLE=ticket
+conductor_environment = "workflow-conductor"            # WORKFLOW_ROLE=conductor; release credentials only if wanted
 # The environments' setup script: only machine-level tools the cloud image
 # lacks (it has Python, Node, Java, Go, Rust, Ruby, PHP, Docker, PostgreSQL,
 # Redis). It runs before Claude starts, and must not read the repository's
