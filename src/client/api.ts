@@ -47,6 +47,6 @@ export function saveNote(text: string): Promise<Note> {
       body: JSON.stringify({ text }),
     },
     // With no answer we can't tell whether the note arrived, so the person checks first.
-    "The connection dropped, so the note may not have been saved. Check your notes before saving it again.",
+    "No answer came back, so the note may not have been saved. When your notes show again, check for it before saving it again.",
   );
 }

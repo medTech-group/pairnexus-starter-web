@@ -141,7 +141,7 @@ test("says plainly when the server can't be reached", async ({ page }) => {
   await page.getByLabel("New note").fill("Made-up note while offline");
   await page.getByRole("button", { name: "Save note" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "saved" })).toHaveText(
-    "The connection dropped, so the note may not have been saved. Check your notes before saving it again.",
+    "No answer came back, so the note may not have been saved. When your notes show again, check for it before saving it again.",
   );
 });
 
@@ -252,7 +252,7 @@ test("if the answer to a save is lost, shows whether the note landed", async ({ 
   await page.getByLabel("New note").fill(text);
   await page.getByRole("button", { name: "Save note" }).click();
   await expect(page.getByRole("alert")).toHaveText(
-    "The connection dropped, so the note may not have been saved. Check your notes before saving it again.",
+    "No answer came back, so the note may not have been saved. When your notes show again, check for it before saving it again.",
   );
   await expect(page.getByRole("list", { name: "Your notes" }).getByText(text)).toBeVisible();
 });
