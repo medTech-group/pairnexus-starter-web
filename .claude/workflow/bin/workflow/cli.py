@@ -2,23 +2,28 @@
 
     workflow profile check
     workflow status [--issues F --prs F | --fetch] [--json]
-    workflow doctor [--claude-version VERSION] [--rulesets F] [--repo F] [--environments F] [--runs F] [--checks F] [--prs F] [--json] [--strict]      (what's set up and what isn't; changes nothing)
+    workflow doctor [--claude-version VERSION] [--rulesets F] [--repo F] [--environments F] [--runs F] [--checks F] [--prs F] [--org F] [--ci F] [--commits F] [--now TIME] [--json] [--strict]      (what's set up and what isn't; changes nothing)
     workflow protection --rulesets F [--repo F] [--base BRANCH] [--json]
     workflow protection --protect --repo F [--base BRANCH] [--check NAME ...] [--json]
     workflow protection --require-checks F --check NAME [--check NAME ...] [--json]
+    workflow protection --merge-queue F --doctor F [--timeout MINUTES] [--json]
     workflow protection --checks-ran F [--statuses F] --rulesets F --repo F [--base BRANCH] [--json]
     workflow version [--fresh] [--json] | --repo | --starter
-    workflow ready [--issues F --prs F | --fetch] [--exclude 1,2] [--only 1,2] [--override 3] [--running-area A ...] [--slots N] [--json]
-    workflow charter defaults [--unprotected] | validate F [--approved] [--unprotected] | markdown F [--tickets 13:area,143:-] [--estimate F] | diff OLD NEW | reuse OLD | pin-plan F | questions [--unprotected]
+    workflow ready [--issues F --prs F | --fetch] [--permissions F] [--exclude 1,2] [--only 1,2] [--override 3] [--running-area A ...] [--slots N] [--json]
+    workflow charter defaults [--unprotected] | validate F [--approved] [--unprotected] [--queue on|off] | markdown F [--tickets 13:area,143:-] [--estimate F] | diff OLD NEW | reuse OLD | pin-plan F | questions [--unprotected] [--queue on|off]
     workflow charter estimate F [--tickets N | 13:area,143:-] [--runs F] [--security 13,143] [--now ISO] [--json]
     workflow charter splice --body F --charter F [--out F] [--tickets 13:area,143:-] [--estimate F]
-    workflow state init --charter F --run-id ID [--by-hand N] [--read-through ID] | get --body F | put --body F --state F [--out F] | patch --body F --patch F [--out F]
+    workflow state init --charter F --run-id ID [--by-hand N] [--read-through ID] [--queue on|off] | get --body F | put --body F --state F [--out F] | patch --body F --patch F [--out F]
+                   | drop --body F --ticket N --head SHA --answer A --out F | queue --body F --queue on|off --out F
     workflow render --template F --ticket F --charter F --slots F --tracking N [--by-hand N] [--out F] [--print]
     workflow comments --file F [--owner LOGIN] [--since-id N]
-    workflow merge-check --pr F --files F --commits F --checks F --rulesets F --threads F --reviews F --comments F --permissions F --compare F [--preview F] [--asker LOGIN] [--review-rounds N] [--json]
-    workflow merge-check --fetch N [any of the files above] [--charter F --check-logs DIR] [--asker LOGIN] [--review-rounds N] [--json]
+    workflow merge-check --pr F --files F --commits F --checks F --rulesets F --threads F --reviews F --comments F --permissions F --compare F [--preview F] [--asker LOGIN] [--review-rounds N] [--review-passes N] [--small-max-lines N] [--small-max-files N] [--json]
+    workflow merge-check --fetch N [any of the files above] [--charter F --check-logs DIR] [--asker LOGIN] [--review-rounds N] [--review-passes N] [--small-max-lines N] [--small-max-files N] [--json]
     workflow preview --comments F --checks F --sha SHA [--json] | --fetch N [any of those] [--json]
     workflow briefing verify --file F
+    workflow review-record --kind round|pass --round N --commit SHA --reviewers NAMES --clean|--not-clean [--base BRANCH]      (with the hashes of the PR's own changes at SHA)
+    workflow review-record [--kind spec] --round N --body F --reviewers spec,correctness --clean|--not-clean      (a spec's review, keyed to its body's SHA-256)
+    workflow review-record --measure --commit SHA [--base BRANCH] [--small-max-lines N] [--small-max-files N]      (the diff against the small threshold; no record)
     workflow pr-template [--existing FILE]      (prints the file to write; exits 3 for a folder of templates)
     workflow adopt --owner LOGIN --repo OWNER/NAME --name NAME [--project DIR]      (a copy of the starter made yours)
     workflow evidence [--suite NAME ... | --all] [--base-count N | --base-ref BRANCH] [--fresh] [--allow-dirty]
@@ -59,6 +64,7 @@ from . import gate as gate_mod
 from . import guard as guard_mod
 from . import issues as issues_mod
 from . import merge as merge_mod
+from . import own_changes as own_changes_mod
 from . import posts as posts_mod
 from . import previews as previews_mod
 from . import pr_template as pr_template_mod
@@ -66,12 +72,13 @@ from . import protection as protection_mod
 from . import render as render_mod
 from . import repair as repair_mod
 from . import reviews as reviews_mod
+from . import small as small_mod
 from . import roles
 from . import state as state_mod
 from . import status as status_mod
 from . import updates as updates_mod
 from . import vendor as vendor_mod
-from .profile import PROFILE_PATH, ProfileError, load, project_root, resolve_experience
+from .profile import PROFILE_PATH, ProfileError, code_rule, load, project_root, resolve_experience
 
 KIT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -173,6 +180,8 @@ def cmd_ready(a) -> int:
         verdicts = [v for v in verdicts if v.number in only]
         for n in missing:
             print(f"workflow ready: #{n} isn't an open ready-for-agent build ticket", file=sys.stderr)
+    stdin_for = None if a.fetch else "issues" if a.issues == "-" else "prs" if a.prs == "-" else None
+    _note_unreviewed_specs(verdicts, issues, prs, prof.repo if prof else None, a.permissions, stdin_for)
     slots = a.slots if a.slots is not None else (prof.max_parallel if prof else 2)
     running = [r.strip().casefold() for r in a.running_area or [] if r and r.strip()]
     start = issues_mod.startable(verdicts, running, max(0, slots), overrides=overrides)
@@ -193,6 +202,52 @@ def cmd_ready(a) -> int:
                 print(f"      note: {note}")
         print("start now: " + (", ".join(f"#{v.number}" for v in start) or "nothing"))
     return 0
+
+
+def _note_unreviewed_specs(verdicts, issues, prs, repo: str | None, permissions_file: str | None, stdin_for: str | None) -> None:
+    """`ready`'s note on a ready ticket whose spec has no clean review (#234):
+    a spec's comments not carried in the issues file are fetched with `gh`,
+    and their authors' permissions come from `--permissions F` or `gh`. Once
+    `gh` is missing or times out, it isn't called again: the specs left get
+    the "couldn't read" note at once, so `ready` never waits on it spec by spec.
+    `stdin_for` names the flag that already read standard input, if any."""
+    gh_down: list[str] = []  # why `gh` can't be used any more, once known
+    given: list = []  # the --permissions file's (JSON, why it can't be read), read once
+    token: dict = {}  # the token's own login and permission, read once (`permissions_of`)
+
+    def gh(what: str, call):
+        if gh_down:
+            raise issues_mod.SpecReviewsUnread(f"{what}: gh wasn't asked, since an earlier call failed: {gh_down[0]}")
+        try:
+            return call()
+        except fetch_mod.GhError as e:
+            down = [m for m in (fetch_mod.NOT_INSTALLED, fetch_mod.TIMED_OUT) if m in str(e)]  # also after a proxy's refusal
+            gh_down.extend(down[:1])
+            raise issues_mod.SpecReviewsUnread(f"{what}: {e}") from None
+
+    def comments(number: int):
+        if not repo:
+            raise issues_mod.SpecReviewsUnread("its comments: no project.repo to fetch them from")
+        return gh("its comments", lambda: fetch_mod.spec_comments(repo, number))
+
+    def permissions(logins: list[str]):
+        if permissions_file is not None:
+            if not permissions_file.strip():
+                raise issues_mod.SpecReviewsUnread("--permissions was given no file")
+            if permissions_file == "-" and stdin_for:
+                raise issues_mod.SpecReviewsUnread(f"--permissions: standard input (-) is already --{stdin_for}'s: only one file can be read from it")
+            if not given:  # read as merge-check reads its --permissions
+                given.append(_json_inputs(argparse.Namespace(permissions=permissions_file), ["permissions"])["permissions"])
+            value, why = given[0]
+            if why:
+                raise issues_mod.SpecReviewsUnread(f"--permissions: {why}")
+            return value
+        if not repo:
+            raise issues_mod.SpecReviewsUnread("the reviewers' permissions: no project.repo, give --permissions F")
+        return gh("the reviewers' permissions (or give --permissions F)", lambda: fetch_mod.permissions_of(repo, logins, token))
+
+    pull_numbers = [p["number"] for p in prs if isinstance(p, dict) and type(p.get("number")) is int] if isinstance(prs, list) else []
+    issues_mod.note_unreviewed_specs(verdicts, issues, repo, comments, permissions, pull_numbers=pull_numbers)
 
 
 def cmd_status(a) -> int:
@@ -234,6 +289,8 @@ def cmd_status(a) -> int:
         local_gaps=[ln.as_dict(local.wording) for ln in local.lines if ln.status == "gap"],
         profile_error=error is not None,
     )
+    rule = code_rule(root)
+    st.code_writers, st.writes_code = rule.code_writers, rule.writes_code()
     kit = updates_mod.check(root, KIT_ROOT) if a.fetch else {"installed": updates_mod.installed(root, KIT_ROOT)}
     if a.json:
         _out({**st.as_dict(), "kit": kit})
@@ -267,8 +324,12 @@ def _read_profile(root: Path):
 def cmd_doctor(a) -> int:
     """What's set up and what isn't, each line with its fix (#34). Exits 0,
     or with --strict 1 on a gap or a line it couldn't check."""
-    if [a.rulesets, a.repo, a.environments, a.runs, a.checks, a.prs].count("-") > 1:
-        print("workflow doctor: only one of --rulesets, --repo, --environments, --runs, --checks and --prs can be standard input (-)", file=sys.stderr)
+    if [a.rulesets, a.repo, a.environments, a.runs, a.checks, a.prs, a.org, a.ci, a.commits].count("-") > 1:
+        print("workflow doctor: only one of --rulesets, --repo, --environments, --runs, --checks, --prs, --org, --ci and --commits can be standard input (-)", file=sys.stderr)
+        return 2
+    now = doctor_mod.parse_now(a.now)
+    if now is None:
+        print(f"workflow doctor: --now {a.now!r} isn't a time (give one as 2026-10-25T12:00:00Z)", file=sys.stderr)
         return 2
     root = project_root()
     prof, error = _read_profile(root)
@@ -287,6 +348,10 @@ def cmd_doctor(a) -> int:
                 runs_file=_given_file(a.runs),
                 checks_file=_given_file(a.checks),
                 prs_file=_given_file(a.prs),
+                org_file=_given_file(a.org),
+                ci_file=_given_file(a.ci),
+                commits_file=_given_file(a.commits),
+                now=now,
             )
         )
     except KeyboardInterrupt:  # Ctrl-C: a quiet stop (what it ran is already killed)
@@ -350,8 +415,21 @@ def cmd_protection(a) -> int:
 
     def require():
         if a.rulesets is not None or a.repo is not None or a.base is not None:
-            raise protection_mod.ProtectionError("--require-checks takes the ruleset alone, without --rulesets, --repo or --base: it names its repository, and targets what it targets")
+            raise protection_mod.ProtectionError("--require-checks takes the ruleset alone, without --rulesets, --repo or --base: the ruleset names its own repository and branches")
         req = protection_mod.require_checks(given(a.require_checks, "ruleset"), a.check)
+        return {"requests": [req.as_dict()]} if a.json else protection_mod.requests_text([req])
+
+    def queue():
+        if a.rulesets is not None or a.repo is not None or a.base is not None:
+            raise protection_mod.ProtectionError("--merge-queue takes the ruleset and --doctor alone, without --rulesets, --repo or --base: the ruleset names its own repository and branches")
+        if a.doctor is None:
+            raise protection_mod.ProtectionError("--merge-queue needs doctor's verdict with --doctor (what `workflow doctor --json` prints)")
+        timeout = None
+        if a.timeout is not None:
+            if not (re.fullmatch(r"[1-9][0-9]{0,2}", a.timeout) and int(a.timeout) <= protection_mod.QUEUE_TIMEOUT_MAX):
+                raise protection_mod.ProtectionError(f"--timeout {protection_mod.quote(a.timeout)} isn't whole minutes from 1 to {protection_mod.QUEUE_TIMEOUT_MAX}, as GitHub takes it")
+            timeout = int(a.timeout)
+        req = protection_mod.merge_queue(given(a.merge_queue, "ruleset"), given(a.doctor, "doctor"), timeout)
         return {"requests": [req.as_dict()]} if a.json else protection_mod.requests_text([req])
 
     def checks_ran():
@@ -364,17 +442,21 @@ def cmd_protection(a) -> int:
         return {"checks": ran, "required": rep.required_checks} if a.json else protection_mod.ran_text(ran, rep.required_checks)
 
     try:
-        files = [f for f in (a.rulesets, a.repo, a.require_checks, a.checks_ran, a.statuses) if f is not None]
+        files = [f for f in (a.rulesets, a.repo, a.require_checks, a.merge_queue, a.doctor, a.checks_ran, a.statuses) if f is not None]
         if files.count("-") > 1:
             raise protection_mod.ProtectionError("only one of the files can be read from standard input (-)")
         if a.check and not (a.protect or a.require_checks is not None):
             raise protection_mod.ProtectionError("--check goes with --protect or --require-checks")
         if a.statuses is not None and a.checks_ran is None:
             raise protection_mod.ProtectionError("--statuses goes with --checks-ran")
+        if (a.doctor is not None or a.timeout is not None) and a.merge_queue is None:
+            raise protection_mod.ProtectionError(f"{'--doctor' if a.doctor is not None else '--timeout'} goes with --merge-queue")
         if a.protect:
             out = protect()
         elif a.require_checks is not None:
             out = require()
+        elif a.merge_queue is not None:
+            out = queue()
         elif a.checks_ran is not None:
             out = checks_ran()
         else:
@@ -435,14 +517,22 @@ def cmd_charter(a) -> int:
         _out(charter_mod.defaults(profile=load(required=False), protected=_protected(a)))
         return 0
     if a.action == "questions":
-        _out(charter_mod.questions(profile=load(required=False), protected=_protected(a)))
+        _out(charter_mod.questions(profile=load(required=False), protected=_protected(a), queue=_queue(a)))
         return 0
     if a.action == "reuse":
         old = _json(a.file)
         if not isinstance(old, dict):
             print("workflow: the old charter must be a JSON object", file=sys.stderr)
             return 1
-        _out(charter_mod.reuse(old))
+        prof = _page_profile()
+        # Light's review is fixed; any other review written out needs the profile's numbers.
+        if prof is None and not isinstance(old.get("review"), dict) and old.get("preset") != "light":
+            print(
+                "note: no profile could be read: the review written out (rounds and UI explorer) is the profile's "
+                "defaults; check it in `charter diff`",
+                file=sys.stderr,
+            )
+        _out(charter_mod.reuse(old, prof))
         return 0
     if a.action == "pin-plan":
         c = _json(a.file)
@@ -457,7 +547,7 @@ def cmd_charter(a) -> int:
         return 0
     if a.action == "validate":
         c = _json(a.file)
-        problems = charter_mod.validate(c, require_approval=a.approved)
+        problems = charter_mod.validate(c, require_approval=a.approved, queue=_queue(a))
         prof = load(required=False)
         # Against the profile only once the charter itself is sound.
         if prof is not None and not problems:
@@ -561,6 +651,13 @@ def _protected(a) -> bool | None:
     return False if getattr(a, "unprotected", False) else None
 
 
+def _queue(a) -> bool | None:
+    """`--queue on|off`: whether the base's ruleset requires a merge queue, as
+    read at that moment. Without it, the state isn't known here."""
+    q = getattr(a, "queue", None)
+    return None if q is None else q == "on"
+
+
 def _against_profile(c: dict, prof, who: bool = True, protected: bool | None = None) -> list[str]:
     """The charter against the profile: release steps, waived checks, auto-merge
     in solo mode and, with `who`, that the profile's project.owner approved and
@@ -597,7 +694,7 @@ def _charter_change_problems(old, new) -> list[str]:
 def cmd_state(a) -> int:
     if a.action == "init":
         c = _json(a.charter)
-        problems = charter_mod.validate(c, require_approval=True)
+        problems = charter_mod.validate(c, require_approval=True, queue=_queue(a))
         if not problems:
             prof = load(required=False)
             if prof is not None:
@@ -606,6 +703,7 @@ def cmd_state(a) -> int:
             print("The charter isn't ready:\n- " + "\n- ".join(problems), file=sys.stderr)
             return 1
         s = state_mod.empty(c)
+        s["merge_queue"] = _queue(a)
         s["run_id"] = a.run_id
         s["by_hand_issue"] = a.by_hand
         s["comments_read_through"] = a.read_through
@@ -625,6 +723,8 @@ def cmd_state(a) -> int:
             return 1
         _out(s)
         return 0
+    if a.action in ("drop", "queue"):
+        return _state_record(a, body)
     if a.action == "put":
         try:
             cur = state_mod.get(body)
@@ -646,6 +746,29 @@ def cmd_state(a) -> int:
         Path(a.out).write_text(new, encoding="utf-8")
     else:
         print(new)
+    return 0
+
+
+def _state_record(a, body: str) -> int:
+    """`state drop` and `state queue`: decide, print the decision, and write the
+    body with it recorded to --out."""
+    s = state_mod.get(body)
+    if s is None:
+        raise state_mod.StateError("no state block in this body; use `state put` first")
+    problems = state_mod.validate(s)
+    if problems:
+        raise state_mod.StateError("the state in this body has problems, so nothing was recorded:\n- " + "\n- ".join(problems))
+    if a.action == "drop":
+        tickets = s.get("tickets") if isinstance(s.get("tickets"), dict) else {}
+        t = tickets.get(str(a.ticket))
+        if not isinstance(t, dict):
+            raise state_mod.StateError(f"#{a.ticket} isn't one of the run's tickets: add it to the state first")
+        said = state_mod.drop(t, a.head, a.answer)
+    else:
+        said = state_mod.queue_seen(s, _queue(a))
+    new = state_mod.put(body, s)
+    Path(a.out).write_text(new, encoding="utf-8")
+    print(said)
     return 0
 
 
@@ -689,6 +812,24 @@ def _pr_number(v: str) -> int:
 def _review_rounds(v: str) -> int:
     if not (re.fullmatch(r"[0-9]{1,2}", v) and int(v) in merge_mod.REVIEW_ROUNDS):
         raise argparse.ArgumentTypeError(f"'{reviews_mod._shown(v, 20)}' isn't a whole number from 1 to 10 (the review rounds allowed, as the briefing or the profile's run.review_rounds gives them)")
+    return int(v)
+
+
+def _review_passes(v: str) -> int:
+    if not (re.fullmatch(r"[0-9]{1,2}", v) and int(v) in merge_mod.REVIEW_PASSES):
+        raise argparse.ArgumentTypeError(f"'{reviews_mod._shown(v, 20)}' isn't a whole number from 0 to 10 (the Correctness passes allowed after the last round, as the briefing or the profile's run.review_passes gives them)")
+    return int(v)
+
+
+def _small_max_lines(v: str) -> int:
+    if not (re.fullmatch(r"[0-9]{1,4}", v) and int(v) in small_mod.MAX_LINES):
+        raise argparse.ArgumentTypeError(f"'{reviews_mod._shown(v, 20)}' isn't a whole number from 1 to 1000 (the small threshold's changed lines, as the briefing or the profile's run.small_max_lines gives them)")
+    return int(v)
+
+
+def _small_max_files(v: str) -> int:
+    if not (re.fullmatch(r"[0-9]{1,2}", v) and int(v) in small_mod.MAX_FILES):
+        raise argparse.ArgumentTypeError(f"'{reviews_mod._shown(v, 20)}' isn't a whole number from 1 to 50 (the small threshold's changed files, as the briefing or the profile's run.small_max_files gives them)")
     return int(v)
 
 
@@ -766,7 +907,8 @@ def cmd_merge_check(a) -> int:
             print(f"workflow merge-check: can't read --check-logs {a.check_logs}: {e.strerror or e}; no check's log was read", file=sys.stderr)
     role = roles.env_role() if not roles.unrecognised() else None  # waivers want a firm role: see merge.waivers
     level = resolve_experience(root, prof.experience if prof else None).wording_level
-    res = merge_mod.evaluate(inputs, prof, profile_error, asker=a.asker, level=level, charter_input=charter, logs=logs, role=role, review_rounds=a.review_rounds)
+    res = merge_mod.evaluate(inputs, prof, profile_error, asker=a.asker, level=level, charter_input=charter, logs=logs, role=role, review_rounds=a.review_rounds, review_passes=a.review_passes,
+                              small_max_lines=a.small_max_lines, small_max_files=a.small_max_files)
     _out(res.as_dict() if a.json else merge_mod.text(res))
     return 0
 
@@ -806,6 +948,12 @@ def _fetched_preview(repo: str, number: int, inputs: dict) -> tuple:
         return previews_mod.read(got["comments"][0], got["checks"][0], got["sha"][0]).as_dict(), None
     except previews_mod.PreviewError as e:
         return None, f"`workflow preview` said: {e}"
+
+
+def _head(v: str) -> str:
+    if not state_mod.is_head(v.lower()):
+        raise argparse.ArgumentTypeError(f"'{reviews_mod._shown(v, 50)}' isn't a head commit's full SHA (40 hex characters)")
+    return v.lower()
 
 
 def _sha(v: str) -> str:
@@ -916,22 +1064,129 @@ def cmd_adopt(a) -> int:
     return 0
 
 
+def _spec_body(path: str) -> str:
+    """The spec's body from --body's file, as the session publishes it; raises
+    RecordError, in words, for a file that is missing, can't be read, isn't
+    UTF-8 text or is empty."""
+    if not path:
+        raise reviews_mod.RecordError("give --body a file: the spec's body, exactly as you publish it")
+    # The end of a long path, where the file's name is.
+    shown = reviews_mod._shown(path, 80) if len(path) <= 80 else "…" + reviews_mod._shown(path[-79:], 79)
+    p = Path(path)
+    try:
+        if not p.exists():
+            raise reviews_mod.RecordError(f"--body names no file: `{shown}`")
+        if not p.is_file():
+            raise reviews_mod.RecordError(f"--body `{shown}` isn't a file: give the file holding the spec's body")
+        text = p.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        raise reviews_mod.RecordError(f"--body `{shown}` isn't UTF-8 text: give the spec's body as you publish it") from None
+    except OSError as e:
+        raise reviews_mod.RecordError(f"--body `{shown}` can't be read: {e.strerror or e}") from None
+    if not reviews_mod.plain_body(text):
+        raise reviews_mod.RecordError(f"--body `{shown}` {reviews_mod.EMPTY_BODY}")
+    return text
+
+
 def cmd_review_record(a) -> int:
-    """`review-record`: the comment a review round or a later Correctness pass posts."""
+    """`review-record`: the comment a review round, a later Correctness pass, or
+    a spec's review round (keyed to its body's SHA-256) posts."""
     # Each flag is a list (`append`), so a repeated one is refused rather than
     # the last silently winning; repeated --reviewers add up.
-    for flag in ("kind", "round", "commit"):
+    for flag in ("kind", "round", "commit", "body", "base"):
         if len(getattr(a, flag) or []) > 1:
             print(f"workflow review-record: give --{flag} once", file=sys.stderr)
             return 2
+    if a.measure:
+        return _measure(a)
+    if a.small_max_lines is not None or a.small_max_files is not None:
+        print("workflow review-record: --small-max-lines and --small-max-files go only with --measure", file=sys.stderr)
+        return 2
     one = {flag: (getattr(a, flag) or [None])[0] for flag in ("kind", "round", "commit")}
+    path = (a.body or [None])[0]
+    if path is not None and not (one["kind"] or "").strip():
+        one["kind"] = "spec"  # --body alone (or with an empty --kind) is a spec's review
     reviewers = ",".join(a.reviewers) if a.reviewers else None
     try:
-        text = reviews_mod.record(**one, reviewers=reviewers, clean=a.clean)
+        if path is not None:
+            reviews_mod.check_key(one["kind"], one["commit"], body_given=True)
+        body = None if path is None else _spec_body(path)
+        # Checked before any git runs: a refused record is never hashed.
+        text = reviews_mod.record(**one, reviewers=reviewers, clean=a.clean, body=body)
+        if reviews_mod._kind(one["kind"]) in ("round", "pass"):
+            hashes = _own_hashes(a, one["commit"].strip().lower())
+            text = reviews_mod.record(**one, reviewers=reviewers, clean=a.clean, diff=hashes.diff, lines=hashes.lines)
     except reviews_mod.RecordError as e:
         print(f"workflow review-record: {e}", file=sys.stderr)
         return 2
     sys.stdout.write(text)
+    return 0
+
+
+def _own_hashes(a, commit: str) -> own_changes_mod.Hashes:
+    """A round's or pass's hashes of its own changes (#258): from the merge base
+    of `origin/<base>`, fetched first, to `commit`, never the working head.
+    Whatever stops them, they are `unknown`, with a note on standard error:
+    the record still counts, and standard output stays the record alone."""
+    unknown = f"{own_changes_mod.UNKNOWN} for diff and lines"
+    try:
+        prof = load()
+    except (ProfileError, OSError, UnicodeDecodeError) as e:
+        if _given_base(a) is None:
+            _record_note(f"couldn't read the profile for the base branch ({e}): {unknown}")
+            return own_changes_mod.UNKNOWN_HASHES
+        prof = None
+    try:
+        base, source = _base(a, prof)
+        return own_changes_mod.local(prof.root if prof else project_root(), commit, base, _record_note, source)
+    except (small_mod.CantMeasure, own_changes_mod.CantHash) as e:
+        _record_note(f"can't hash the pull request's own changes: {e}: {unknown}")
+        return own_changes_mod.UNKNOWN_HASHES
+
+
+def _record_note(text: str) -> None:
+    print(f"workflow review-record: {text}", file=sys.stderr)
+
+
+def _given_base(a) -> str | None:
+    return (a.base or [None])[0]
+
+
+def _base(a, prof) -> tuple[str, str]:
+    """`review-record`'s base branch, and where it came from, for a name git
+    refuses: `--base`, else the profile's."""
+    if _given_base(a) is not None:
+        return _given_base(a), "--base"
+    return prof.base_branch, "the profile's project.base_branch"
+
+
+def _measure(a) -> int:
+    """`review-record --measure` (#257): the commit's counted lines and files
+    against the merge base of `origin/<base>`, and whether they are within the
+    small threshold, counted as `merge-check` counts them. Writes no record:
+    standard output is only the measurement, every note goes to standard error."""
+    given = [f"--{f}" for f in ("kind", "round", "body", "reviewers") if getattr(a, f)] + (["--clean or --not-clean"] if a.clean is not None else [])
+    if given:
+        print(f"workflow review-record: --measure writes no record: leave out {', '.join(given)}", file=sys.stderr)
+        return 2
+    commit = (a.commit or [""])[0].strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        print("workflow review-record: --measure needs --commit, the full 40-character SHA to measure (`git rev-parse HEAD`)", file=sys.stderr)
+        return 2
+    try:
+        prof = load()
+    except (ProfileError, OSError, UnicodeDecodeError) as e:
+        print(f"workflow review-record: can't measure: couldn't read the profile: {e}", file=sys.stderr)
+        return 1
+    try:
+        base, source = _base(a, prof)
+        ref = small_mod.base_ref(prof.root, base, _record_note, source)
+        changes = small_mod.local_changes(prof.root, commit, ref)
+    except small_mod.CantMeasure as e:
+        print(f"workflow review-record: can't measure: {e}", file=sys.stderr)
+        return 1
+    m = small_mod.measure(changes, small_mod.suite_globs(prof), a.small_max_lines or prof.small_max_lines, a.small_max_files or prof.small_max_files)
+    print(m.text())
     return 0
 
 
@@ -1088,8 +1343,9 @@ def _budget(seconds: float):
             signal.signal(signal.SIGALRM, previous)
 
 
-def _cant_decide(event, why: str, solo: bool | None = None, fixes: str = fallback.FIXES) -> int:
-    """The can't-decide fallback (`fallback`, #53) in an attended session: a push
+def _cant_decide(event, why: str, solo: bool | None = None, fixes: str = fallback.FIXES, planning: bool = False) -> int:
+    """The can't-decide fallback (`fallback`, #53) in an attended session (or,
+    with `planning`, a session `_planning` treats as one): a push
     or a merge is asked, or refused in solo mode or where nobody is asked;
     anything else is left alone. A missing profile (the kit isn't set up) is
     left alone too. Always 0, and never raises: a hook that exits non-zero
@@ -1102,7 +1358,7 @@ def _cant_decide(event, why: str, solo: bool | None = None, fixes: str = fallbac
             solo = fallback.solo(root)
         d = fallback.decide(event, solo, why, fixes)
         if d:
-            out = fallback.output(d[0], f"[workflow guard, {_role_label('attended')}] {d[1]}")
+            out = fallback.output(d[0], f"[workflow guard, {_planning_label() if planning else _role_label('attended')}] {d[1]}")
             print(json.dumps(out))
     except Exception:
         pass
@@ -1119,26 +1375,55 @@ def _ticket_branch_without_the_kit(event: dict) -> bool:
         return False
 
 
+def _planning(role: str | None, firm: str | None, root=None) -> bool:
+    """Whether the can't-decide fallback treats this session as a planning
+    session (#342): under `code_writers = "ticket"`, read from a plain line of
+    the working tree's profile or the base's (`fallback.ticket_rule`), a
+    session that is a ticket session only by its branch (`firm` None) or by a
+    WORKFLOW_ROLE that isn't a role. Never one with WORKFLOW_ROLE=ticket, nor
+    one without a working tree's profile."""
+    if role != "ticket" or (firm is not None and roles.unrecognised() is None):
+        return False
+    try:
+        root = Path(root or project_root())
+        # Without a working tree's profile the CLI refuses as before (restore it).
+        return (root / PROFILE_PATH).is_file() and fallback.ticket_rule(root)
+    except Exception:
+        return False
+
+
+def _role_without_the_kit(event, firm: str | None) -> tuple[str | None, bool]:
+    """(the role, whether `_planning` makes it a planning session) where the
+    profile can't be read: WORKFLOW_ROLE's, else "ticket" on a branch matching
+    `run.ticket_branch` as the old-Python fallback reads it, else None."""
+    role = firm or ("ticket" if _ticket_branch_without_the_kit(event if isinstance(event, dict) else {}) else None)
+    return role, _planning(role, firm)
+
+
+def _planning_label() -> str:
+    odd = roles.unrecognised()
+    why = f"WORKFLOW_ROLE={odd!r} isn't a role" if odd else "WORKFLOW_ROLE isn't set"
+    return f'planning session ({why}, and only ticket sessions write code: code_writers = "ticket")'
+
+
 def _hook_guard(event, raw: str = "") -> int:
     firm = roles.env_role()
     if not isinstance(event, dict):  # malformed: nothing can be checked
-        if firm is None and _ticket_branch_without_the_kit({}):
-            firm = "ticket"
-        if firm in ("ticket", "conductor"):
-            _deny_json(f"[workflow guard, {_role_label(firm)}] the hook's event wasn't a JSON object, so nothing could be checked and this was refused")
+        role, planning = _role_without_the_kit({}, firm)
+        if role in ("ticket", "conductor") and not planning:
+            _deny_json(f"[workflow guard, {_role_label(role)}] the hook's event wasn't a JSON object, so nothing could be checked and this was refused")
             return 0
-        return _cant_decide(fallback.read_event(raw), "the hook's event couldn't be read as a JSON object")
+        return _cant_decide(fallback.read_event(raw), "the hook's event couldn't be read as a JSON object", planning=planning)
     try:
         prof = load(required=False)
     except ProfileError as e:
-        if firm is None and _ticket_branch_without_the_kit(event):
-            firm = "ticket"
-        if firm in ("ticket", "conductor"):
+        role, planning = _role_without_the_kit(event, firm)
+        if role in ("ticket", "conductor") and not planning:
             if not _is_restore(event):
-                _deny_json(f"[workflow guard, {_role_label(firm)}] the profile is invalid, so nothing can be checked: {e}. Fix .claude/workflow/profile.toml in a PR from an attended session, or restore it: git checkout -- .claude/workflow")
+                _deny_json(f"[workflow guard, {_role_label(role)}] the profile is invalid, so nothing can be checked: {e}. Fix .claude/workflow/profile.toml in a PR from an attended session, or restore it: git checkout -- .claude/workflow")
             return 0
         print(f"workflow guard hook: the profile is invalid, so the guard can't check anything: {e}", file=sys.stderr)
-        return _cant_decide(event, f"the profile is invalid ({e})")
+        return _cant_decide(event, f"the profile is invalid ({e})", planning=planning)
     if prof is None:
         if firm in ("ticket", "conductor") and not _is_restore(event):
             _deny_json(
@@ -1155,25 +1440,32 @@ def _hook_guard(event, raw: str = "") -> int:
             role = roles.role(cwd, prof.ticket_branch, fallback=root)
             d = guard_mod.decide(event, prof, role, root, roles.current_branch(cwd), role_from_env=firm is not None, cwd=event.get("cwd") or None)
     except _OverBudget:
-        role = role or firm or "ticket"  # a role not read in time: the strictest
+        # A role not read in time is the strictest, unless the rule says that
+        # without WORKFLOW_ROLE=ticket no session gets more than a planning session's.
+        strictest = role or firm or "ticket"
+        planning = _planning(strictest, firm, root)
+        role = "attended" if planning else strictest
+        label = _planning_label() if planning else _role_label(role)
         # Solo mode refuses what touches the base branch, so a check not finished in time is refused too.
         if role in ("ticket", "conductor") or (role == "attended" and prof.ruleset is False):
-            _deny_json(f"[workflow guard, {_role_label(role)}] the guard ran out of time ({GUARD_BUDGET:g} seconds) checking this, so it was refused; split the command, or give it smaller files")
+            _deny_json(f"[workflow guard, {label}] the guard ran out of time ({GUARD_BUDGET:g} seconds) checking this, so it was refused; split the command, or give it smaller files")
             return 0
         return _cant_decide(
             event,
             f"it ran out of time ({GUARD_BUDGET:g} seconds) checking this",
             prof.ruleset is False,
             "To have it checked, split the command, or give it smaller files.",
+            planning=planning,
         )
     except Exception as e:  # fail closed where a person isn't there to notice
-        if role in ("ticket", "conductor") or (role is None and firm in ("ticket", "conductor")):
+        planning = _planning(role or firm, firm, root)
+        if not planning and (role in ("ticket", "conductor") or (role is None and firm in ("ticket", "conductor"))):
             _deny_json(f"[workflow guard, {_role_label(role or firm)}] the guard failed ({type(e).__name__}: {e}), so this was refused; rephrase the command more simply")
             return 0
-        return _cant_decide(event, f"it failed ({type(e).__name__}: {e})", prof.ruleset is False)
+        return _cant_decide(event, f"it failed ({type(e).__name__}: {e})", prof.ruleset is False, planning=planning)
     if d.action == "allow":
         return 0  # never force "allow": the normal permission rules still apply
-    reason = f"[workflow guard, {_role_label(role)}] {d.reason}"
+    reason = f"[workflow guard, {d.label or _role_label(role)}] {d.reason}"
     print(
         json.dumps(
             {
@@ -1207,18 +1499,23 @@ def _hook_context(event: dict) -> int:
     files = context_mod.flow_files(root, KIT_ROOT, prof.flow_addendum if prof else "")
     prompt, session = event.get("prompt") or "", event.get("session_id") or ""
     ctx = context_mod.context_for(prompt, session, files)
-    role: list[str] = []  # read once, and only at a first prompt
+    role: list[str] = []  # read once, and only when something would be added
 
     def attended() -> bool:
         if not role:
             role.append(roles.role(root, prof.ticket_branch))
         return role[0] == "attended"
 
-    # The guided start, at the first prompt only (marked whatever it was):
-    # attended sessions only, since ticket and conductor sessions start from a
-    # briefing or a charter, never from a menu.
+    # A ticket named to the conductor goes to a ticket session, never built
+    # by the conductor itself (#308): the line comes first, beside the flow.
+    # Only WORKFLOW_ROLE makes a conductor session, so no branch is read.
+    if roles.env_role() == "conductor" and context_mod.names_a_ticket(prompt):
+        ctx = context_mod.with_conductor_line(ctx)
+    # The guided start at the first prompt (marked whatever it was), and its
+    # reminder at each later one: attended sessions only, since ticket and
+    # conductor sessions start from a briefing or a charter, never from a menu.
     if prof is not None and prof.guided_start:
-        nudge = context_mod.start_for(prompt, session)
+        nudge = context_mod.start_for(prompt, session) or context_mod.reminder_for(prompt)
         if nudge and not ctx and attended():
             ctx = nudge
     # The glossary, beside whatever came above, at the first prompt of an
@@ -1279,14 +1576,13 @@ def cmd_hook(a) -> int:
     except Exception as e:  # a bug in a hook must not stop the session; say so
         if a.name == "guard":
             firm = roles.env_role()
-            if firm is None and _ticket_branch_without_the_kit(event if isinstance(event, dict) else {}):
-                firm = "ticket"
-            if firm in ("ticket", "conductor"):
+            role, planning = _role_without_the_kit(event, firm)
+            if role in ("ticket", "conductor") and not planning:
                 _deny_json(f"[workflow guard] the guard failed ({type(e).__name__}: {e}), so this was refused")
                 return 0
             print(f"workflow guard hook failed ({type(e).__name__}: {e})", file=sys.stderr)
             why = f"the profile is invalid ({e})" if isinstance(e, ProfileError) else f"it failed ({type(e).__name__}: {e})"
-            return _cant_decide(event if isinstance(event, dict) else fallback.read_event(raw), why)
+            return _cant_decide(event if isinstance(event, dict) else fallback.read_event(raw), why, planning=planning)
         if isinstance(e, ProfileError):
             print(f"workflow {a.name} hook: the profile is invalid, so the hook did nothing: {e}", file=sys.stderr)
             return 1
@@ -1311,6 +1607,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--override", help="tickets that may share an area with a running one, e.g. 5,6")
     s.add_argument("--running-area", action="append")
     s.add_argument("--slots", type=int)
+    s.add_argument("--permissions", metavar="F", help="the permissions of those who posted a spec's review records, in any shape merge-check's --permissions takes; else read with `gh api`")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_ready)
 
@@ -1329,7 +1626,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--runs", metavar="F", help="the issues labelled workflow:run, as the GitHub API returns them (or -), for whether a run has been made; else read with `gh api`")
     s.add_argument("--checks", metavar="F", help="the base branch's latest commit's check runs and statuses (GET repos/<repo>/commits/<ref>/check-runs and .../status, every page, in one file), as `workflow protection --checks-ran` reads them (or -), for the \"Require these checks\" offer; else read with `gh api`")
     s.add_argument("--prs", metavar="F", help="the open pull requests, as `workflow ready --prs` takes them (or -), for one that adds required checks to the profile; else read with `gh api`")
-    s.add_argument("--json", action="store_true", help="every line's group, id, status, message, fix and offer, for skills")
+    s.add_argument("--org", metavar="F", help="the organisation that owns the repository (GET orgs/<owner>; its plan shows only to its owners) (or -), for whether a private repository can have a merge queue; else read with `gh api`")
+    s.add_argument("--ci", metavar="F", help="the check runs of the base's last commits and of recent pull requests' heads, with the workflow runs behind them: a JSON list of {\"sha\", \"base\": true|false, \"check_runs\": GET .../commits/<sha>/check-runs, \"workflow_runs\": GET .../actions/runs?head_sha=<sha>} (or -), for the merge_group check and CI's duration; else read with `gh api`")
+    s.add_argument("--commits", metavar="F", help="the base branch's commits (GET repos/<repo>/commits?sha=<base>&per_page=100) (or -), for how often it moved in the last 7 days; else read with `gh api`")
+    s.add_argument("--now", metavar="TIME", help="the time the 7 days end at (ISO 8601, e.g. 2026-10-25T12:00:00Z); else now")
+    s.add_argument("--json", action="store_true", help="every line's group, id, status, message, fix and offer, for skills; and merge_queue: the queue's state, the merge_group check and the signals")
     s.add_argument("--strict", action="store_true", help="exit 1 when any line is a gap or can't be checked; notes never fail it")
     s.set_defaults(fn=cmd_doctor)
 
@@ -1337,9 +1638,12 @@ def main(argv: list[str] | None = None) -> int:
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--protect", action="store_true", help="print the requests that protect the base branch: the ruleset to create, and the merge settings (needs --repo)")
     mode.add_argument("--require-checks", metavar="F", help="print the request that adds --check names to this ruleset (GET repos/<repo>/rulesets/<id>, in full)")
+    mode.add_argument("--merge-queue", metavar="F", help="print the request that adds the merge-queue rule to this ruleset (GET repos/<repo>/rulesets/<id>, in full), with \"up to date\" off; refused unless --doctor's merge_group verdict is clean")
     mode.add_argument("--checks-ran", metavar="F", help="the checks that ran on a commit (GET repos/<repo>/commits/<ref>/check-runs), less those --rulesets require")
     s.add_argument("--statuses", metavar="F", help="with --checks-ran: the commit's statuses (GET repos/<repo>/commits/<ref>/statuses)")
     s.add_argument("--check", action="append", default=[], metavar="NAME", help="a check to require (repeat for each)")
+    s.add_argument("--doctor", metavar="F", help="with --merge-queue: what `workflow doctor --json` printed (or -), for its merge_group verdict and CI's longest run")
+    s.add_argument("--timeout", metavar="MINUTES", help="with --merge-queue: the check timeout the owner chose, 1 to 360 (default: twice CI's longest run on the base, 60 to 360)")
     s.add_argument("--rulesets", help="the repository's rulesets, each in full (GET repos/<repo>/rulesets/<id>), as a JSON list (or -)")
     s.add_argument("--repo", help="the repository's settings (GET repos/<repo>): the merge settings, and the default branch that ~DEFAULT_BRANCH means")
     s.add_argument("--base", help="the base branch (default: the profile's project.base_branch)")
@@ -1375,18 +1679,36 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--security", help="estimate: the plan's tickets the review panel would give a security review, e.g. 13,143")
     s.add_argument("--now", metavar="ISO", help="estimate: the time to count from (else now)")
     s.add_argument("--json", action="store_true", help="estimate: as JSON")
+    s.add_argument(
+        "--queue",
+        choices=["on", "off"],
+        help="questions, validate: whether the base's ruleset requires a merge queue (read now); with it on, no check may be waived",
+    )
     s.add_argument("--body", help="splice: the tracking issue's body (a file, or -)")
     s.add_argument("--charter", help="splice: the charter")
     s.add_argument("--out", help="splice: write the new body here (else print it)")
     s.set_defaults(fn=cmd_charter)
 
     s = sub.add_parser("state")
-    s.add_argument("action", choices=["init", "get", "put", "patch"])
+    s.add_argument("action", choices=["init", "get", "put", "patch", "drop", "queue"])
     s.add_argument("--body")
     s.add_argument("--charter")
     s.add_argument("--run-id")
     s.add_argument("--by-hand", type=int)
     s.add_argument("--read-through", type=int, help="init: the id of the tracking issue's newest comment (0 for none)")
+    s.add_argument(
+        "--queue",
+        choices=["on", "off"],
+        help="init: whether the base's ruleset requires a merge queue at kick-off, recorded to notice a change (with it on, "
+        "no check may be waived); queue: whether it does now, printed as unchanged, changed or recorded (with whether the charter's waivers apply)",
+    )
+    s.add_argument("--ticket", type=int, help="drop: the ticket whose pull request was queued")
+    s.add_argument("--head", type=_head, help="drop: the head commit queued, its full SHA")
+    s.add_argument(
+        "--answer",
+        choices=state_mod.DROP_ANSWERS,
+        help="drop: GitHub's answer to queueing it; prints in_queue, waiting, merged, retry, requeued, merge_base or needs_human",
+    )
     s.add_argument("--state")
     s.add_argument("--patch")
     s.add_argument("--out")
@@ -1423,6 +1745,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--check-logs", metavar="DIR", help="a waived check's log, one file per check, named by its check run's id on the head (<id>, <id>.log or <id>.txt; the id is its job's), as `gh run view --log-failed --job <id>` gives its tail")
     s.add_argument("--asker", metavar="LOGIN", help="the GitHub login of whoever asks (the owner gets \"Ready once you've read\" for kit and CI files)")
     s.add_argument("--review-rounds", metavar="N", type=_review_rounds, help="the review rounds allowed, 1 to 10 (default: the profile's run.review_rounds): after the last one, a clean Correctness pass on the head lifts its findings; a run passes the briefing's")
+    s.add_argument("--review-passes", metavar="N", type=_review_passes, help="the Correctness passes allowed after the last round, 0 to 10 (default: the profile's run.review_passes): where one more would be needed, the answer is passes_used_up and the owner decides; a run passes the briefing's")
+    s.add_argument("--small-max-lines", metavar="N", type=_small_max_lines, help="the small threshold's changed lines outside tests, 1 to 1000 (default: the profile's run.small_max_lines): a review in which no counted round ran Spec counts only within it; a run passes the briefing's")
+    s.add_argument("--small-max-files", metavar="N", type=_small_max_files, help="the small threshold's changed files outside tests, 1 to 50 (default: the profile's run.small_max_files)")
     s.add_argument("--json", action="store_true", help="the decision, its reasons and notes, and each check's name and state, as JSON")
     s.set_defaults(fn=cmd_merge_check)
 
@@ -1453,15 +1778,20 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_adopt)
 
     s = sub.add_parser(
-        "review-record", allow_abbrev=False, help="the record a review round or a later Correctness pass posts on the pull request"
+        "review-record", allow_abbrev=False, help="the record a review round or a later Correctness pass posts on the pull request, or a spec's review on the spec"
     )
-    s.add_argument("--kind", action="append", help="`round`, or `pass` for a Correctness pass after the last round")
+    s.add_argument("--kind", action="append", help="`round`, `pass` for a Correctness pass after the last round, or `spec` for a spec's review (the default with --body)")
     s.add_argument("--round", action="append", help="the round's number; for a pass, the round it follows")
     s.add_argument("--commit", action="append", help="the full SHA the round covered (`git rev-parse HEAD`)")
-    s.add_argument("--reviewers", action="append", help="those that ran, comma-separated: " + ",".join(reviews_mod.REVIEWERS))
+    s.add_argument("--body", action="append", metavar="FILE", help="a spec's review: the file holding the spec's body as you publish it, in place of --commit; the record names its SHA-256")
+    s.add_argument("--reviewers", action="append", help="those that ran, comma-separated: " + ",".join(reviews_mod.REVIEWERS) + "; a spec's review takes " + ",".join(reviews_mod.SPEC_REVIEWERS))
     result = s.add_mutually_exclusive_group()
     result.add_argument("--clean", dest="clean", action="store_true", default=None, help="nothing left to fix")
     result.add_argument("--not-clean", dest="clean", action="store_false", help="the round found something to fix")
+    s.add_argument("--measure", action="store_true", help="write no record: print --commit's changed lines and files outside tests, against the merge base of origin/<base>, and whether they are within the small threshold, counted as merge-check counts them")
+    s.add_argument("--base", action="append", metavar="BRANCH", help="the base branch, fetched as origin/<base> first (default: the profile's project.base_branch)")
+    s.add_argument("--small-max-lines", metavar="N", type=_small_max_lines, help="with --measure: the small threshold's changed lines, 1 to 1000 (default: the profile's run.small_max_lines)")
+    s.add_argument("--small-max-files", metavar="N", type=_small_max_files, help="with --measure: the small threshold's changed files, 1 to 50 (default: the profile's run.small_max_files)")
     s.set_defaults(fn=cmd_review_record)
 
     s = sub.add_parser("evidence")
@@ -1517,6 +1847,10 @@ def main(argv: list[str] | None = None) -> int:
         p.error("state put needs --state")
     if a.cmd == "state" and a.action == "patch" and not a.patch:
         p.error("state patch needs --patch")
+    if a.cmd == "state" and a.action == "drop" and (None in (a.ticket, a.head, a.answer) or not a.out):
+        p.error("state drop needs --ticket, --head, --answer and --out")
+    if a.cmd == "state" and a.action == "queue" and not (a.queue and a.out):
+        p.error("state queue needs --queue and --out")
     try:
         return a.fn(a)
     except (ProfileError, state_mod.StateError, render_mod.RenderError, evidence_mod.EvidenceError, vendor_mod.VendorError) as e:

@@ -11,7 +11,7 @@ Guide the person from "what are we working on?" to work done, one choice at a ti
 
 **Every question is a choice to click.** Use the `AskUserQuestion` tool:
 - **Options:** 2 to 4. Your recommended option comes first, its label ending "(Recommended)", with one line saying why. "Other" is always added for their own words, so never add a "something else" option.
-- **Building a ticket:** **Build it with a light review** is always the second choice, after the full build: never first, never "(Recommended)", never chosen for them.
+- **Building a ticket:** **Build it with a light review** is always the second choice, after the full build: never first, never "(Recommended)", never chosen for them. So on a ticket marked `Review: small`, after **Build it now (Recommended)** (the small review) and before **Build it with the full panel**.
 - **Questions:** up to 4 in one call, when they don't depend on each other. More than 4 means several calls.
 - **No tool:** where `AskUserQuestion` isn't available (a headless `-p` session), ask the same choices as a numbered list.
 
@@ -69,7 +69,9 @@ The kit's hook brings this skill at a session's first message. Read that message
 | **More than one thing**, even if one of them is small ("add XYZ, and the greeting is wrong") | Step 1's look around, without the question, then step 2 with their words. Never start on one of them before the plan is agreed. |
 | One piece of work to plan: a feature, a change to how something works, something broken with no known cause | The same: step 1's look around, then step 2 |
 | Anything vaguer ("hi", "let's work on the app"), or `/start` | Step 1 |
-| The conversation was already under way (a resumed session) | Ignore the hook and carry on |
+| The conversation was already under way (a resumed session) | Follow the hook's reminder (below) instead of this table: carry on with what was agreed, and plan any new work first |
+
+**Later messages.** At each later message of an attended session, the hook adds a one-line reminder: new work that isn't part of the plan or ticket already agreed in this session is split into items with a path for each and the plan agreed first (step 2); a question, a named issue or one small change with an obvious place may go ahead (on its own branch, with a pull request); replies to your own questions carry on. Never in a ticket or conductor session, with `guided_start = false`, at a slash command, or when the message already brings the flow's context.
 
 ## 1. Look around, then ask
 
@@ -79,7 +81,7 @@ Run:
 WF status --fetch
 ```
 
-Where `gh api` isn't available, fetch the issues (`state=all`, with labels, bodies and `sub_issues_summary`) and the open PRs with the GitHub MCP tools. Save them as JSON and pass `--issues issues.json --prs prs.json`.
+Where `gh api` isn't available, fetch the issues (`state=all`, with labels, bodies, `created_at`, `comments` and `sub_issues_summary`) and the open PRs with the GitHub MCP tools. Save them as JSON and pass `--issues issues.json --prs prs.json`.
 
 It reports:
 - whether the kit is set up, and whether the project is brand new (no code of its own);
@@ -91,6 +93,8 @@ It reports:
 - new issues to sort (`needs-triage`, or no label).
 
 Tell the person what matters in two to four lines, for example: "PR #297 is waiting for your merge. Two items from last time aren't started: #301 the booking page (quick ticket), #302 booking reminders (spec). One ticket is ready: #262." Leave out what doesn't matter.
+
+**A ready ticket's note.** Before you name a ready ticket in those lines or offer it ("Carry on", or a ready ticket in "What are we working on?"), read their notes, in one call for all of them: `WF ready --fetch --only <n>` (`<n>` the ticket numbers, comma-separated; or with `--issues`/`--prs` files, as `next` says). Show a note beside the ticket, in its line and in the option's description: "spec #<n> has no clean review: check it before building" means its spec wasn't reviewed since it last changed, and "couldn't read its reviews" that it couldn't be told. Either is a warning, never a block: offer the ticket as usual, and the person decides.
 
 **In solo mode** (status says `Solo mode: yes`), one of those lines says so, with what it means for them: "This project is in solo mode: nothing on GitHub protects `<base branch>` yet, so the kit refuses any change straight to it, and all work goes through pull requests." Name the profile's base branch. Don't offer "Protect `main`" here: it is offered when they ask, and in a refusal.
 
@@ -211,13 +215,21 @@ For each item, read the flow's section for its path and follow it, skipping noth
    - what to build;
    - acceptance criteria, each naming where it's tested;
    - `## Blocked by`, with what the item waits for;
-   - an `Area:` line.
+   - an `Area:` line;
+   - a `Review: small` line, only when you expect the change to stay within the small threshold (the profile's `run.small_max_lines` changed lines in `run.small_max_files` files, outside tests) and to add no endpoint, table, screen or setting (flow §2). Removing the line opts the ticket out.
 
    Show it, and ask **Publish it (Recommended)** or **Change it**.
 2. Publish by editing the item's issue into the ticket: replace its body, drop the marker, and add `ready-for-agent`. The item's issue becomes the ticket.
 3. Ask:
    - **Build it now (Recommended)**: load `build-ticket` with the Skill tool, on a fresh branch;
-   - **Build it with a light review**: the same, asking `build-ticket` for a light review (`review-panel` §6, "The light review"): one review round, for a small change;
+   - **Build it with a light review**: the same, asking `build-ticket` for a light review (`review-panel` §6, "The light review"): one review round, for a low-risk change;
+   - **Leave it ready for later**: `/next` or a run picks it up;
+   - **Next item**.
+
+   **On a ticket marked `Review: small`**, ask instead (`AskUserQuestion` takes four choices, so with it leave out **Next item**: they can still say it under "Other"):
+   - **Build it now (Recommended)**: load `build-ticket` with the Skill tool, on a fresh branch: the small review, one round of Correctness with the security review and the explorer where they apply (`review-panel` §7, "The small review"), or the full panel if the diff grows past the small threshold;
+   - **Build it with a light review**: as above;
+   - **Build it with the full panel**: the same, asking `build-ticket` for the full panel, as for an unmarked ticket;
    - **Leave it ready for later**: `/next` or a run picks it up;
    - **Next item**.
 
@@ -239,15 +251,17 @@ For each item, read the flow's section for its path and follow it, skipping noth
    When nothing is left to ask, confirm your understanding in a few lines and ask:
    - **Write the spec (Recommended)**;
    - **There's more to discuss**;
-   - **Stop here**: comment on the item's issue with the decisions so far, so the next session carries on from them.
+   - **Stop here**: post their answers so far on the item's issue, each question with the answer quoted word for word, so the next session carries on from them.
 2. **The spec.** Read `to-spec`'s `SKILL.md` and follow it.
    - Ask the seams as a choice, with the seams listed above the question: **These seams (Recommended)**, **Fewer, higher seams** or **Change them**.
-   - Publish it under flow §2: labels `spec` and `ready-for-agent`, the decision behind each choice cited, and, for a map's Destination item, linked from the map.
+   - Post their answers, the seams among them, on the item's issue (or, for a map's Destination item, a comment on the map naming it), each question with the answer quoted word for word (flow §2).
+   - Review the draft before publishing it: `review-panel`'s planning review (§8), until a round is clean. A fix that would change what a decision means is a question for them first; anything still open after the last round is named in the handover.
+   - Publish the reviewed text as is, under flow §2: labels `spec` and `ready-for-agent`, the decision behind each choice cited, and, for a map's Destination item, linked from the map. Check the published body's hash against the reviewed file (`review-panel` §8), then post each round's spec record on it, oldest first.
    - Close the item's issue as completed, with "Planned as #<spec>".
 
    Ask:
    - **Split it into tickets (Recommended)**;
-   - **Edit the spec first**;
+   - **Edit the spec first**: the edited body gets another planning round and its spec record (`review-panel` §8) before the tickets;
    - **Stop here**: `/start` offers the tickets next time, from the open spec.
 3. **The tickets.** Read `to-tickets`' `SKILL.md` and follow it, with flow §2's additions. Show the breakdown and ask:
    - **Publish these (Recommended)**;
@@ -269,12 +283,13 @@ For each item, read the flow's section for its path and follow it, skipping noth
 3. Ask:
    - **Stop here: the first decision in a fresh session (Recommended)**: there, the first message offers it, or `/next map`;
    - **Next item of the plan**: only when it is light.
-4. **The gate** (flow §1). None of a map's build tickets is built until every item of its Destination has a spec and tickets. `next`, this skill and the conductor's kick-off keep to it; `workflow ready` doesn't know about maps. So while a map has unspecified Destination items, don't offer to build its tickets.
+4. **Each decision,** in its own session (flow §1): the owner's answers posted on its ticket, each question with the answer quoted word for word; the ADR and glossary written on a branch and given `review-panel`'s planning review (§8) until clean, before the ticket is closed and the pull request offered with its review records.
+5. **The gate** (flow §1). None of a map's build tickets is built until every item of its Destination has a spec and tickets. `next`, this skill and the conductor's kick-off keep to it; `workflow ready` doesn't know about maps. So while a map has unspecified Destination items, don't offer to build its tickets.
 
 **Add to an existing issue:**
 1. Show the change to that issue, and ask **Make this change (Recommended)** or **Change it**.
 2. Edit it on yes.
-3. If it's a spec whose tickets are published, find the tickets the change touches, and change them the same way.
+3. If it's a spec, its edited body gets another planning round and its spec record (`review-panel` §8). If its tickets are published, find the tickets the change touches, and change them the same way.
 4. A ticket already built (closed, or with an open PR) isn't edited: the change becomes a new quick ticket.
 
 ## 5. Sorting new issues
@@ -285,7 +300,7 @@ Take them one at a time, oldest first, following `triage`'s steps for each. Read
 - reproducing a bug before anything else.
 
 Say in two lines what it asks and what you found, then ask, your recommendation first:
-- **Ready to build**: it becomes a build ticket as in "Quick ticket" above, with the same template (flow §2 says a triaged ticket gets `Area:`, `## Blocked by` and acceptance criteria);
+- **Ready to build**: it becomes a build ticket as in "Quick ticket" above, with the same template and its `Review: small` line only where the quick ticket says (flow §2 says a triaged ticket gets `Area:`, `## Blocked by` and acceptance criteria);
 - **Needs a spec**: it joins the plan: append the item marker with `path=spec`;
 - **Needs more information**: comment asking for it, label `needs-info`;
 - **Won't do**: comment why, label `wontfix`, close as not planned.
@@ -315,7 +330,7 @@ They can change course at any point. Take it as said, and confirm in one line:
 - **"Skip that one" / "drop it":** close its issue as not planned.
 - **"Do that one first":** reorder, and change the blockers to match.
 - **A spec or ticket to change after it's published:**
-  - edit it on GitHub, or ask you to;
+  - edit it on GitHub, or ask you to; a spec you edit gets another planning round and its spec record (`review-panel` §8);
   - removing `ready-for-agent` stops `/next` and runs picking it up;
   - closing it as not planned drops it.
 - **A decision to undo:** reopen it.

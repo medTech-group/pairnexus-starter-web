@@ -1,6 +1,6 @@
 ---
 name: upgrade-setup
-description: Move a project from solo mode to the full set-up, one upgrade at a time. "Protect `main`" makes a ruleset and the merge settings on the base branch with `gh` after one confirmation on the owner's own computer, or guides the person click by click to them everywhere else, reads them back with `workflow protection`, and opens the pull request that leaves solo mode. "Require these checks", once CI has run on the base branch, adds the ticked checks that ran to the ruleset protecting it (with "up to date" on) and to the profile's `ci.required_checks`. "Set up unattended runs" asks the questions only runs need, guides the two cloud environments, and writes the answers to the profile in one pull request. "Add try-it links" takes the owner through Cloudflare one screen at a time, then opens a pull request that turns previews on in the profile and reports its own try-it link once it has built. Use when the person asks to protect main, to require the checks, to set up unattended runs or to add try-it links, or picks one where the kit offers it.
+description: Move a project from solo mode to the full set-up, one upgrade at a time. "Protect `main`" makes a ruleset and the merge settings on the base branch with `gh` after one confirmation on the owner's own computer, or guides the clicks elsewhere, reads them back with `workflow protection`, and opens the pull request that leaves solo mode. "Require these checks", once CI has run, adds the ticked checks to the ruleset and to `ci.required_checks`. "Set up unattended runs" asks what only runs need, guides the two cloud environments, and writes the answers to the profile. "Add try-it links" guides Cloudflare, then turns previews on in a pull request showing its own link. "Use a merge queue" adds `merge_group` to the workflows, then the merge-queue rule. "Choose who writes code" sets `guard.code_writers` in a pull request. Use when the person asks to protect main, require the checks, set up unattended runs, add try-it links, use a merge queue or choose who writes code, or picks one where the kit offers it.
 ---
 
 # Upgrade the set-up
@@ -10,9 +10,11 @@ A project set up in solo mode (`project.ruleset = false`) works attended from th
 - **"Protect `main`"**: a ruleset on the base branch and the merge settings, then a pull request that sets `ruleset = true`. The first part of this file.
 - **"Set up unattended runs"**: the questions only runs need, the two cloud environments, and a pull request that writes the answers to the profile. The second part.
 - **"Require these checks"**: once CI has run on the base branch, the checks that ran, ticked, added to the ruleset protecting it and listed in the profile's `ci.required_checks`, so failing tests stop merges and the two agree. The third part.
-- **"Add try-it links"**: a try-it link on each pull request, from Cloudflare, with no live site: the steps in Cloudflare one screen at a time, then a pull request that turns previews on and shows its own link working. The fourth part, last.
+- **"Add try-it links"**: a try-it link on each pull request, from Cloudflare, with no live site: the steps in Cloudflare one screen at a time, then a pull request that turns previews on and shows its own link working. The fourth part.
+- **"Use a merge queue"**: GitHub's merge queue in place of "up to date": a pull request adding `merge_group` to the workflows behind the required checks first, then the ruleset's merge-queue rule with "up to date" off. The fifth part.
+- **"Choose who writes code"**: who writes code in this project, only ticket sessions or any session, with the code paths, in a pull request changing the profile. The sixth part, last.
 
-"Where things are" and "When it's offered" are shared by all four.
+"Where things are" and "When it's offered" are shared by all six.
 
 Below, `main` stands for the profile's `project.base_branch`: use its real name in everything you show.
 
@@ -28,15 +30,17 @@ Below, `main` stands for the profile's `project.base_branch`: use its real name 
 
 The read-back needs GitHub's own JSON: the repository (`GET repos/<repo>`, with `permissions`, `default_branch` and the merge settings) and each ruleset by its id. Use a tool that returns those responses as they are, `gh api` where it is signed in. When no tool here gives them, treat the rulesets as unreadable ("Protect `main`", step 2).
 
+**Pushing.** Each path that opens a pull request commits, then pushes the branch in a command of its own, never chained with the commit (`git commit … && git push`): the guard refuses that under `code_writers = "ticket"`.
+
 **Choices** use the `AskUserQuestion` tool, the recommended option first; without it (a headless session), the same choices as a numbered list.
 
-**Only in attended sessions.** When `WORKFLOW_ROLE` is `ticket`, don't run it or offer it: there's nobody to click. For "Protect `main`", say in the ticket's report that the base branch isn't protected, and carry on. The conductor runs it only at its kick-off, with the owner there, and never runs "Require these checks": its kick-off sends the owner to an attended session for that (the `conductor` skill). It never runs "Add try-it links" either.
+**Only in attended sessions.** When `WORKFLOW_ROLE` is `ticket`, don't run it or offer it: there's nobody to click. For "Protect `main`", say in the ticket's report that the base branch isn't protected, and carry on. The conductor runs it only at its kick-off, with the owner there, and never runs "Require these checks": its kick-off sends the owner to an attended session for that (the `conductor` skill). It never runs "Add try-it links" or "Use a merge queue" either. Nor "Choose who writes code".
 
 ## When it's offered
 
 Offered, never as a nag, at these moments only (`require_checks` and `add_try_it_links` have their own, narrower rules, below). Each comes with "Not now", and "Not now" ends it for that moment:
 - when the person asks ("protect main", "set up the ruleset", "set up unattended runs", "require the checks");
-- right after the set-up pull request merges, "Protect `main`" once (set-up's own offer), and both in its body as optional next steps;
+- right after the set-up pull request merges, "Protect `main`" once (set-up's own offer), and both in its body as optional next steps; "Set up unattended runs" once too, after it, when set-up's answer was only ticket sessions in vendored mode;
 - in the guard's solo-mode refusal, once it offers "Protect `main`";
 - before an unattended run in solo mode, once the conductor's pre-flight offers it;
 - by `workflow doctor`, once it exists, when it finds the base branch unprotected.
@@ -46,7 +50,9 @@ The offers have names, which `workflow doctor` and the other skills use:
 - **`restore_protection`**: the profile says `ruleset = true` but the read-back says the base branch isn't protected (the protection was removed or weakened). The same path, without the pull request that leaves solo mode: the profile is already right.
 - **`require_checks`**: CI has run on the base branch and some checks that ran aren't required yet (`WF protection --checks-ran … --json` gives a non-empty `checks`). The third path, "Require these checks". Unlike the others it is offered only through `workflow doctor`'s `require_checks` offer (which `check-setup` and the conductor's pre-flight show), or when the person asks ("require the checks", "make failing tests block merges"). Never anywhere else: not after set-up, not in the guard's refusals.
 - **`set_up_unattended_runs`**: the person wants Claude to work while nobody is watching, and the profile names no environments yet (`run.ticket_environment` empty). The second path, "Set up unattended runs".
+- **`use_merge_queue`**: doctor's `github.merge_queue` line suggests a merge queue (an organisation's repository that can have one, protected, with checks required). The fifth path, "Use a merge queue". Like `require_checks` it has its own, narrower rule: offered only through `workflow doctor`'s `use_merge_queue` offer (which `check-setup` shows), or when the person asks ("use a merge queue"). Never while a run is in progress, never in a ticket or conductor session, and never as a nag.
 - **`add_try_it_links`**: the project has a Wrangler config and no `[previews]` section in the profile. The fourth path, "Add try-it links". Like `require_checks` it has its own, narrower rule: offered only from the quickstart's next steps, from `workflow doctor`'s `add_try_it_links` offer (which `check-setup` shows), and when the person asks ("add try-it links", "set up previews"). Never at session start, never as a nag, and never to a project whose `[previews]` section turned them off: doctor makes no offer there.
+- **"Choose who writes code"** has no offer name: doctor's `kit.code_writers` note names it in its fix while `guard.code_writers` is unanswered, and `check-setup` offers it from that note. The sixth path. Also when the person asks ("choose who writes code", "let my sessions write code again"). Never in a ticket or conductor session, and never as a nag.
 
 # Protect `main`
 
@@ -203,7 +209,7 @@ Only for `protect_main`, and only once the read-back says `"protected": true`. F
    - When names were ticked on the automatic path, the same pull request adds the ticked names it doesn't already list to `ci.required_checks`, after the names already there, never removing a name the profile already lists and never listing one twice.
    - Change nothing else.
 3. `WF profile check` passes, and `WF status --json` gives `solo_mode: false` on the branch.
-4. Push the branch and open the pull request. Its body: what the read-back found (the report, "checks not required yet" if so), and that merging it takes the project out of solo mode. When it adds at least one new required check, it names them and carries this marker on a line of its own, so `workflow doctor` can name the pull request while it's open:
+4. Push the branch in a command of its own ("Pushing"), and open the pull request. Its body: what the read-back found (the report, "checks not required yet" if so), and that merging it takes the project out of solo mode. When it adds at least one new required check, it names them and carries this marker on a line of its own, so `workflow doctor` can name the pull request while it's open:
 
    ```
    <!-- workflow:required-checks -->
@@ -282,7 +288,7 @@ All the answers go in one pull request. First look for one already open (from `w
 1. A branch from the base branch, such as `workflow/unattended-runs`.
 2. In `.claude/workflow/profile.toml`, the answers: `[areas]`, `run.ticket_environment`, `run.conductor_environment`, `run.permission_mode`, `run.environment_setup`, `guard.deploy_commands`, `[[release.steps]]` and `[repair]`. Change nothing else; `ruleset` is the first path's.
 3. `WF profile check` passes.
-4. Push the branch and open the pull request. Its body: the answers, the two environments as the person made them, and that the conductor's pre-flight confirms the environments by name at the start of every run.
+4. Push the branch in a command of its own ("Pushing"), and open the pull request. Its body: the answers, the two environments as the person made them, and that the conductor's pre-flight confirms the environments by name at the start of every run.
 
 It changes `.claude/`, so merging it is the owner's: never merge it, or enable auto-merge on it, yourself.
 
@@ -295,7 +301,7 @@ Say where it stands in one line:
 
 # Require these checks
 
-The third path (offer `require_checks`). Once CI has run on the base branch, the checks that ran are shown for ticking, then required by the ruleset protecting the base branch, with "Require branches to be up to date" on, and listed in the profile's `ci.required_checks`, so failing tests stop merges and the ruleset and the profile agree. Offered only as "When it's offered" says, each time with **Not now**. Checks are only ever added, never removed: nothing here takes a required check out of a ruleset or a name out of the profile.
+The third path (offer `require_checks`). Once CI has run on the base branch, the checks that ran are shown for ticking, then required by the ruleset protecting the base branch, with "Require branches to be up to date" on (left as it is when that ruleset has a merge queue, which meets it), and listed in the profile's `ci.required_checks`, so failing tests stop merges and the ruleset and the profile agree. Offered only as "When it's offered" says, each time with **Not now**. Checks are only ever added, never removed: nothing here takes a required check out of a ruleset or a name out of the profile.
 
 The level changes only the words, as in "The screens": read `WF status --json` for `experience.wording_level` and `solo_mode`.
 
@@ -337,9 +343,11 @@ Show each check with its result:
 
 By experience, the words only:
 - *New to building* gets one plain sentence above the list: "GitHub won't merge a change until these pass".
-- *A developer* gets the names, and that "Require branches to be up to date" goes on with them (a branch behind `main` must be updated before it merges).
+- *A developer* gets the names, and that "Require branches to be up to date" goes on with them (a branch behind `main` must be updated before it merges); with a merge queue on that ruleset, that it stays as it is, since the queue meets it.
 
-The choices, with `AskUserQuestion` as the automatic path's checks question has them: **Require the ticked ones** (recommended, naming each with its result), **Choose which** (multiSelect questions, two to four checks each, in a follow-up call; past sixteen, a numbered list), and **Not now**. With a single check: **Require it** (recommended only when it is passing) and **Not now**; a failing or pending one gets **Not now** first. With none ticked by default, no **Require the ticked ones**. On the update with `gh`, the same screen says Claude Code's prompt is expected (below).
+**Beside a merge queue** (the chosen ruleset has a `merge_queue` rule), each ticked check must also come from a workflow that runs on `merge_group`, or every group waits for it until the timeout and its pull requests are dropped: say so on the screen, for both levels. After `git fetch origin <base>`, read the workflow file behind each check offered, a failing or pending one too, on `origin/<base>` under `.github/workflows/`: the job whose `name:`, or key when it has none, gives the check's name (a matrix adds its values in parentheses, `name (a, b)`; a reusable workflow is `caller / callee`); ask the owner when it can't be told. A check whose workflow has no `merge_group:` beside `pull_request:`, or whose `merge_group:` has a `branches` or `branches-ignore` filter that leaves out the base branch, isn't ticked by default and says why, as a failing check does, and says it again if picked through **Choose which**; "Use a merge queue"'s step 1 for that file comes first, before the check is required. After the read-back, run doctor again, as "Use a merge queue" reads it. A `github.merge_group` line that isn't `fine` then gets "Use a merge queue"'s step 1 for the workflows it names.
+
+The choices, with `AskUserQuestion` as the automatic path's checks question has them: **Require the ticked ones** (recommended, naming each with its result), **Choose which** (multiSelect questions, two to four checks each, in a follow-up call; past sixteen, a numbered list), and **Not now**. With a single check: **Require it** (recommended only when it is passing) and **Not now**, never recommended for a check left unticked beside a merge queue; a failing, pending or unticked one gets **Not now** first. With none ticked by default, no **Require the ticked ones**. On the update with `gh`, the same screen says Claude Code's prompt is expected (below).
 
 **Not now** leaves everything as it is: nothing is sent, and `workflow doctor` still says what's left.
 
@@ -348,14 +356,14 @@ The choices, with `AskUserQuestion` as the automatic path's checks question has 
 One confirmation: the checks screen is it. On the same screen: "Claude Code will ask you to approve the GitHub command that changes the ruleset. That is expected: it is how the kit's guard lets you see it first." Then, in order:
 
 1. **The ruleset, in full:** `gh api repos/<repo>/rulesets/<id> > .workflow/ruleset.json`, the ruleset chosen above.
-2. **The request:** `WF protection --require-checks .workflow/ruleset.json --check NAME ... --json > .workflow/checks.json`, one `--check` for each ticked name. It gives one `PUT` with the ruleset's rules, the names added and "up to date" on, and sends nothing. With the Write tool, put its `body` in `.workflow/checks-request.json`, checking its `method` is `PUT` and its `path` is `repos/<repo>/rulesets/<id>`. Exit 2 or any other failure: nothing was sent; say so, and give the clicks.
+2. **The request:** `WF protection --require-checks .workflow/ruleset.json --check NAME ... --json > .workflow/checks.json`, one `--check` for each ticked name. It gives one `PUT` with the ruleset's rules, the names added and "up to date" on (left as it is when the ruleset has the merge-queue rule), and sends nothing. With the Write tool, put its `body` in `.workflow/checks-request.json`, checking its `method` is `PUT` and its `path` is `repos/<repo>/rulesets/<id>`. Exit 2 or any other failure: nothing was sent; say so, and give the clicks.
 3. **The update:** `gh api -X PUT repos/<repo>/rulesets/<id> --input .workflow/checks-request.json`. The guard asks; Claude Code's prompt is the person's approval. Send it once.
 4. **The read-back,** below.
 5. **The profile's pull request,** below.
 
 **A refusal naming the permission mode** (nobody is asked in `bypassPermissions` or `dontAsk`): nothing was sent. Answer "switch the permission mode and try again" (Shift+Tab, or the mode selector), and never retry the command in that mode. A solo-mode refusal: the profile went back to solo mode, so "Solo mode waits". Any other refusal, or the person declining the prompt: nothing was sent; say so, and offer the clicks.
 
-**A failure partway:** say what was done and what's left, read back, and give the clicks for the rest: the request failed to build or send, the clicks for all of it; the update went through but the read-back finds a name or "up to date" missing, the clicks for those on the ruleset's page; the update went through but the profile's pull request couldn't be opened, the ruleset stands, so say so and give the profile change to make by hand.
+**A failure partway:** say what was done and what's left, read back, and give the clicks for the rest: the request failed to build or send, the clicks for all of it; the update went through but the read-back finds a name or "up to date" missing, the clicks for those on the ruleset's page (never "up to date" beside a merge queue); the update went through but the profile's pull request couldn't be opened, the ruleset stands, so say so and give the profile change to make by hand.
 
 ## The clicks for the checks
 
@@ -363,14 +371,14 @@ For everyone the update with `gh` isn't for, one screen at a time, each with the
 
 **Screen 1: open the ruleset.** `https://github.com/<repo>/settings/rules/<id>` (**Settings → Rules → Rulesets →** the ruleset's name). With several and none the kit's, list each with its link and say to open the one that protects `main`. An organisation's ruleset: `https://github.com/organizations/<org>/settings/rules/<id>`, for its owner.
 
-**Screen 2: the checks.** Tick **Require status checks to pass**, and under it **Require branches to be up to date before merging**. Then **Add checks**, and type each name exactly, one at a time: the ticked names, each in a code span. Leave any checks already listed. Click **Save changes**.
+**Screen 2: the checks.** Tick **Require status checks to pass**, and under it **Require branches to be up to date before merging**, unless **Require merge queue** is ticked on that ruleset: then leave "up to date" as it is, and give no click for it. Then **Add checks**, and type each name exactly, one at a time: the ticked names, each in a code span. Leave any checks already listed. Click **Save changes**.
 
 A non-admin gets "Protect `main`" step 1's ready message for the owner, in a code block, with these steps instead: what it's for in one line; the easy way, a Claude session on the repository asked to "require the checks", which shows the checks that ran; or by hand these two screens, with the repository's name filled in but no ruleset id or check names (nothing was read for a non-admin, and a name that never ran must not be typed), then the same request to Claude for the read-back and the profile's pull request.
 
 ## Read the checks back
 
 Either way, the update with `gh` or the clicks: fetch the rulesets again, each in full, and the repository, as step 4 does, then run `WF protection --rulesets .workflow/rulesets.json --repo .workflow/repo.json --json`, with the same exit-code rules.
-- Every ticked name is in `checks.required`, and a ruleset protecting the base branch that requires them (the one they were added to) has `strict_required_status_checks_policy` `true` in its `required_status_checks` rule's parameters: say so in one line (new to building), or show the report (developer).
+- Every ticked name is in `checks.required`, and a ruleset protecting the base branch that requires them (the one they were added to) has `strict_required_status_checks_policy` `true` in its `required_status_checks` rule's parameters (or, with a `merge_queue` rule in that ruleset, as it was: the read-back never asks for "up to date" there): say so in one line (new to building), or show the report (developer).
 - Anything missing (a name, "up to date", or the base branch no longer protected): show each in plain words, and offer the click again, as a choice with **Not now**. Then read it back again.
 
 ## The profile's pull request
@@ -384,7 +392,7 @@ When the profile's `ci.required_checks` already lists every one of them, no pull
 1. A branch from the base branch, such as `workflow/required-checks`.
 2. In `.claude/workflow/profile.toml`'s `[ci]` table, add the required names the profile doesn't list to `ci.required_checks`, after the names already there, never removing one and never listing one twice; and set `ci.none = false` when it was `true`. Change nothing else.
 3. `WF profile check` passes.
-4. Push the branch and open the pull request. Its body: the names now required, the read-back's report, and this marker on a line of its own, so `workflow doctor` can name the pull request while it's open:
+4. Push the branch in a command of its own ("Pushing"), and open the pull request. Its body: the names now required, the read-back's report, and this marker on a line of its own, so `workflow doctor` can name the pull request while it's open:
 
    ```
    <!-- workflow:required-checks -->
@@ -495,7 +503,7 @@ Once the steps are done (and, with sensitive data, screen 7 confirmed): one pull
    The `access = true` line only when screen 7 was confirmed; without sensitive data, leave it out. When the profile has a `[previews]` section already, change its lines in place: never a second `[previews]` table. Change nothing else in the profile.
 3. In the Wrangler config, whichever of the Wrangler lines is missing, a line saying otherwise changed rather than a second one added (`workers_dev = true` becomes `false`, `preview_urls = false` becomes `true`), placed as the page's step 6 says: the two settings near the top, above its first line that starts with `[`, and `[previews]` at its end, since a setting below a line in square brackets belongs to that block. Only the top-level settings count: a `workers_dev` under an `[env.…]` table is another environment's. In a JSON config, say that doctor's `previews.setup` line is `cant_check` once this merges, since doctor reads only a `wrangler.toml`. Change nothing else.
 4. `WF profile check` passes. It refuses `on = true` without `access = true` in a profile with `[sensitive]` patterns, so a project with sensitive data never gets here without screen 7.
-5. Push the branch and open the pull request. Its body: what it turns on, which steps were done (and which were done already), and, with sensitive data, that the owner confirmed Cloudflare Access guards the preview links, which the kit can't check. No email address, token or other detail from Cloudflare's screens goes in it.
+5. Push the branch in a command of its own ("Pushing"), and open the pull request. Its body: what it turns on, which steps were done (and which were done already), and, with sensitive data, that the owner confirmed Cloudflare Access guards the preview links, which the kit can't check. No email address, token or other detail from Cloudflare's screens goes in it.
 
 The profile is a protected path, so merging it is the owner's. Never merge it, or enable auto-merge on it, yourself. Its own link works before it merges; once it merges, every session knows previews are on.
 
@@ -524,3 +532,135 @@ Say where it stands in one line:
 - "Merge #<n> first: it keeps your app off the internet. Then ask me to add try-it links again." after the small pull request of "Before step 2";
 - "Nothing was changed." after **Not now** at the opening choice, or "Stopped before screen <s>: ask me to add try-it links again to go on." after **Not now** later (before screen 7, adding "Preview URLs stay off until Access is on." once the dashboard and the base branch's config both say off, or "Merge #<pr> to keep them off." while the pull request that sets `preview_urls = false` waits);
 - "Try-it links need an app that runs on Cloudflare Workers: this project has no Wrangler config."
+
+# Use a merge queue
+
+The fifth path (offer `use_merge_queue`). GitHub's merge queue tests each pull request against the latest base branch plus the pull requests ahead of it, then merges them in order, so a green pull request never goes stale and nobody updates branches by hand. It takes the place of "Require branches to be up to date". Two steps, always in this order, workflows first:
+
+1. **The workflows' pull request:** `merge_group:` beside `pull_request:` in each workflow behind a required check, which the owner merges. Until those workflows run for the queue, a queue would wait for checks that never come.
+2. **The ruleset change,** once doctor's `merge_group` check is clean on the base branch: the merge-queue rule, with its settings shown to the owner first and chosen there, and "up to date" turned off in the same change.
+
+**Only in an attended session, and never while a run is in progress.** A run's merging mustn't change under it, so when doctor's `merge_queue.signals.run_in_progress` is `true`, or `null` (it can't be told), it isn't offered or started: say "Once the run has ended, ask Claude to \"Use a merge queue\".", and stop. A ticket session never runs it ("Only in attended sessions"), and neither does the conductor: the owner takes it in an attended session, between runs.
+
+The level changes only the words, as in "The screens": read `WF status --json` for `experience.wording_level`.
+
+## Where it stands
+
+First `git fetch origin <base>`: doctor reads the workflows as they are on `origin/<base>`, and trusts whatever the checkout holds of it. Then `WF doctor --json > .workflow/doctor.json`, given the files `check-setup` gathers where `gh` isn't signed in (`--rulesets`, `--repo`, `--org`, `--ci`, `--commits`, `--runs`). Read its `merge_queue`:
+
+- **`queue` is `true`:** the queue is on already. When the `github.up_to_date` line says a ruleset still keeps "up to date" on, give its fix (the clicks below, unticking it in that ruleset; an organisation's is its owner's). Otherwise say so, and stop.
+- **`queue` is `null`:** a merge-queue rule in a ruleset the kit can't judge: say the `github.merge_queue` line's message and fix (or, without that line, `github.up_to_date`'s, or, without either, `github.ruleset`'s), and stop.
+- **No `use_merge_queue` offer** on the `github.merge_queue` line (a personal repository, a private one on a plan without the queue, the base branch unprotected or no checks required): say why from doctor's lines, and stop. "Protect `main`" and "Require these checks" come first.
+- **A run in progress** (above): stop.
+- **`available` is `check_plan`:** say the queue needs GitHub Enterprise Cloud for a private repository, and ask the owner to check the organisation's plan first, with **My plan has it** and **Not now**.
+- **`merge_group.clean` is `true`:** the workflows are ready: step 2.
+- Otherwise: step 1.
+
+## Step 1: the workflows' pull request
+
+Doctor's `merge_queue.merge_group` names what to change:
+
+- each workflow in `workflows[]` with `state` `missing`: add `merge_group:` beside `pull_request:` in its `on:` block, at the same indent, on the line after `pull_request:` and anything under it. Change nothing else in the file;
+- `excluded`: its `merge_group:` has a `branches` or `branches-ignore` filter (its `why`) that leaves out the base branch: widen it, or take the base branch out of `branches-ignore`;
+- `cant_check`: say its `why`. An `on:` that is a list, or push only, the owner edits by hand; a workflow GitHub runs itself (a `dynamic/` path, such as code scanning's default set-up) has no file: its settings say whether it can run for a queue;
+- each check in `checks[]` with `state` `other_ci` (another CI service, or a commit status): that service must run on pushes to `gh-readonly-queue/<base>`, GitHub's rule for CI outside GitHub Actions, and the owner sets it up there;
+- `no_run` or `unknown_workflow`: name the check, and ask which workflow reports it, so the owner points the change at it.
+
+**Path-filtered CI** (a workflow with `paths:` under `pull_request:`, or a step that diffs the pull request's files): `merge_group` takes no `paths:` filter, and a merge group's changed files are the diff of its `base_sha..head_sha` (`github.event.merge_group.base_sha` and `head_sha`). Say so in the pull request's body, and leave the project's own scripts as they are.
+
+**Nothing for the kit to change:** when no workflow is `missing` or `excluded`, open no pull request. Name what is left (the `cant_check` workflows, the `other_ci`, `no_run` or `unknown_workflow` checks) and say plainly that the queue can't go on while they are required and doctor can't see them run for it: the owner fixes them in their own settings or CI service, or stops requiring them, then asks again. Stop with its line in "Where the queue ends".
+
+Otherwise:
+1. A branch from the base branch, such as `workflow/merge-group`, with only those changes.
+2. Push it in a command of its own ("Pushing"), and open the pull request. Its body: what the queue is, in one plain sentence; each workflow changed; anything left for the owner (above); and that CI files are a protected path, so the owner reviews and merges it. GitHub refuses a push that changes `.github/workflows/` from a token without the `workflow` scope (or an app without the workflows permission), as a cloud session's often is: then say so, and give the owner each change to make by hand, in a code block per file.
+3. Never merge it, or enable auto-merge on it, yourself.
+
+The ruleset waits until it has merged and doctor's check is clean on the base branch: once the owner says it merged, fetch and read doctor again ("Where it stands"), and go on to step 2 only when `merge_group.clean` is `true`.
+
+## Step 2: the ruleset change
+
+1. **Admin first,** exactly as "Protect `main`" step 1 does, keeping the JSON in `.workflow/repo.json`. Not an admin: a message for the owner, as there, with step 2's clicks.
+2. **The ruleset:** the one holding the required checks, found as "Require these checks"'s "Which ruleset, and is it protected" does: the kit's own when it holds them, else the one protecting the base branch that requires them. An organisation's is its owner's: give the clicks with its page in the organisation's settings.
+3. **Which way:** the same four conditions as "Which way", read the same way. All four, and a repository's own ruleset: the update with `gh`. Otherwise the clicks.
+4. **The settings, shown first,** in one screen, worded by experience, with the timeout as a number of minutes, worked out from doctor's `merge_queue.signals.ci_minutes.longest` (the writer's `check_response_timeout_minutes`, once it has run, is the same number):
+   - merge method: a merge commit (`MERGE`);
+   - every pull request in a group must pass (`ALLGREEN`);
+   - a check timeout of twice the base branch's longest recent CI run, at least 60 minutes (60 with no history) and at most GitHub's 360. When CI's longest run is near or past 360 minutes, say plainly that groups may time out even at 360;
+   - at most 5 entries built and 5 merged at once;
+   - a minimum of 1 entry, and no wait;
+   - "Require branches to be up to date" turned off, the required checks kept, and the profile's `ci.required_checks` unchanged.
+
+   The choices: **Use these settings** (recommended), **Change the timeout** (then ask for the minutes, above the longest recent CI run and at most 360, or 360 itself when CI runs that long: the writer refuses one below, since groups would time out) and **Not now**. On the update with `gh`, the same screen says Claude Code's prompt is expected, as "The update with `gh`" of "Require these checks" does. **Not now** leaves everything as it is.
+
+**The update with `gh`,** made as "Protect `main`" makes its change, after that one confirmation:
+1. `gh api repos/<repo>/rulesets/<id> > .workflow/ruleset.json`.
+2. `WF protection --merge-queue .workflow/ruleset.json --doctor .workflow/doctor.json --json > .workflow/queue.json`, adding `--timeout <minutes>` when the owner changed it. It gives one `PUT` with the merge-queue rule, "up to date" off and the required checks kept, and sends nothing. With the Write tool, put its `body` in `.workflow/queue-request.json`, checking its `method` is `PUT` and its `path` is `repos/<repo>/rulesets/<id>`. Exit 2 means nothing was sent; read its message. Three are refusals, where the clicks would do what was refused, so give none: say the reason in plain words, then a merge_group check that isn't clean, back to step 1; a timeout, back to the settings screen; a ruleset that requires no checks or isn't active, stop, naming the ruleset that holds the required checks if there is one. A message naming the doctor file: `git fetch origin <base>`, run doctor again and go back to "Where it stands". Any other message (the ruleset file can't be read, isn't JSON or isn't in full), or any other failure: fetch the ruleset again once and rerun; if it still fails, say nothing was sent, and give the clicks.
+3. `gh api -X PUT repos/<repo>/rulesets/<id> --input .workflow/queue-request.json`. The guard asks; Claude Code's prompt is the person's approval. Send it once. Refusals are answered as "Require these checks" answers them.
+4. The read-back, below.
+
+**The clicks,** one screen at a time, each with its link, waiting for "Done":
+- **Screen 1:** open the ruleset, `https://github.com/<repo>/settings/rules/<id>` (an organisation's: `https://github.com/organizations/<org>/settings/rules/<id>`).
+- **Screen 2:** under **Require status checks to pass**, untick **Require branches to be up to date before merging**, leaving the checks listed. Tick **Require merge queue**, and set: **Merge method** Merge commit; **Build concurrency** 5; **Minimum group size** 1; **Maximum group size** 5; **Wait time to meet minimum group size** 0; **Require all queue entries to pass required checks** ticked; **Status check timeout** the minutes chosen. Click **Save changes**.
+
+**The read-back,** either way: `git fetch origin <base>` and doctor again, as in "Where it stands". `merge_queue.queue` is `true`, the `github.up_to_date` line is `fine` (the queue meets it, "up to date" off) and the `github.merge_group` line is `fine`: say so in one line (new to building), or show those lines (developer). Anything else (no queue, "up to date" still on, a check no longer required): show each in plain words, and offer the click again, as a choice with **Not now**. Where another ruleset (an organisation's) keeps "up to date" on, doctor says so: its owner turns it off there by hand.
+
+No profile pull request: nothing in the profile changes.
+
+## Where the queue ends
+
+Say where it stands in one line:
+- "The merge queue is on for `main`: pull requests now join it to merge.";
+- "#<n> adds `merge_group` to the workflows: merge it, then ask me to \"Use a merge queue\" again for the ruleset.";
+- "The merge queue is on already." when it was;
+- "The queue waits for <what is left>: the kit can't see them run for a merge queue." when step 1 has nothing to change;
+- "Nothing was changed." after **Not now**;
+- "Once the run has ended, ask Claude to \"Use a merge queue\"." while a run is in progress;
+- "<what was done>; <what's left>: the clicks for it are above." after a failure;
+- or, not an admin, "The message for the owner is above."
+
+# Choose who writes code
+
+The sixth path. It answers, or changes, who writes code in this project: the profile's `guard.code_writers` (`"ticket"`, only ticket sessions, or `"any"`, any session) with `guard.code_paths`, in a pull request for the owner to merge. Asked for in an attended session ("choose who writes code", "only ticket sessions should write code", "let my sessions write code again"), or picked where `check-setup` offers it, while doctor's `kit.code_writers` note says it is unanswered. Both modes: the plugin has no kit update to ask it, so in plugin mode this is where it is asked.
+
+## 1. Where it stands
+
+The pull request's branch starts from the base branch, so where it stands is the base's profile: `git fetch origin <base>`, then read `code_writers` and `code_paths` from `git show origin/<base>:.claude/workflow/profile.toml`. When `origin/<base>` itself isn't in this checkout (`git rev-parse --verify origin/<base>` fails: the fetch didn't reach it), say so, and stop. When it is but has no profile yet (set-up's pull request hasn't merged), say set-up's pull request merges first, and stop. Otherwise say where it stands in one line: "Not answered yet: any session writes code, as before.", "Only ticket sessions write code." or "Any session writes code."
+
+Then look for an open pull request changing `code_writers` in the profile (from `workflow/code-writers`, or any other, the kit's update among them). If there is one, ask nothing: say what it sets and point at it, to merge or close before asking again, and stop. A second answer beside it would be lost, or merged into a profile with two `code_writers` lines.
+
+Then read `WF status --json`: its `code_writers` is the answer that counts in this session, the stricter of the working tree's profile and the base's. When it is stricter than the base's (`"ticket"` where the base says `"any"` or nothing), or the working tree's `code_paths` (`WF profile check`) list paths the base doesn't, and the base isn't in this branch yet (`git merge-base --is-ancestor origin/<base> HEAD` fails), this session's branch is behind: say that the base's answer applies here once it is merged in (pulled or merged, not only fetched).
+
+## 2. The question
+
+One choice, with `AskUserQuestion`: "Who writes code in this project?"
+- **Only ticket sessions (Recommended)**, always first, whatever the answer now;
+- **Any session**;
+- **Not now**: nothing is changed.
+
+Word the two answers, and what "only ticket sessions" means while the profile names no ticket environment (`run.ticket_environment` empty) or in plugin mode, in set-up's words: its "Who writes code", in `.claude/skills/setup-workflow/SKILL.md` (vendored) or `<this skill's directory>/../setup-workflow/SKILL.md` (plugin).
+
+## 3. The code paths
+
+With **Only ticket sessions**, propose `code_paths` as set-up does (its "The code paths"), for the person to confirm or change, with the base's list (step 1) as the default when it has one. With **Any session**, keep the base's list as it is.
+
+## 4. One pull request
+
+When the answer and the confirmed code paths are what `origin/<base>`'s profile says already, the branch would change nothing: say so, and stop.
+
+1. A branch from the base branch, such as `workflow/code-writers`.
+2. In `.claude/workflow/profile.toml`'s `[guard]` table, a plain `code_writers = "ticket"` or `code_writers = "any"` line on its own, in place of the `code_writers` line there, or of the template's commented `# code_writers = "ticket"`, or at the end of `[guard]` when neither is there; and `code_paths` with the confirmed globs, the same way. Change nothing else.
+3. `WF profile check` passes. Under `"ticket"`, its warning that `guard.code_paths` is empty stays only when the person named no folders.
+4. Commit, then push the branch in a command of its own ("Pushing"). Once its working tree says `"ticket"`, this session writes no code.
+5. Open the pull request. Its body: the answer, the code paths, and what changes once it merges (with only ticket sessions: no other session, the conductor included, writes code, and where it is built instead, as the question said).
+
+**Loosening waits for the merge.** From `"ticket"` to `"any"`, or removing code paths, nothing changes until the pull request merges: the stricter of the working tree's answer and the base's counts, so a session's branch stays under `"ticket"` until the merged base is in it (pulled or merged in, not only fetched). Say so.
+
+It changes `.claude/`, so merging it is the owner's: never merge it, or enable auto-merge on it, yourself.
+
+## 5. Where it ends
+
+Say where it stands in one line:
+- "Only ticket sessions write code once #<n> merges.", adding, while no ticket environment is named, "Until a ticket environment exists, nothing writes code: \"Set up unattended runs\" makes one." (in plugin mode, "Code is then written only in a session on your computer with `WORKFLOW_ROLE=ticket`.");
+- "Any session writes code once #<n> merges, in each branch once it has the merged base branch in it.";
+- "It is that already: nothing to change.";
+- "Nothing was changed." after **Not now**.
