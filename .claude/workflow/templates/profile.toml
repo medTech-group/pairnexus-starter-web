@@ -15,7 +15,8 @@ rules = ["CLAUDE.md"]                   # e.g. "CLAUDE.md#safety-constraints"
 # Optional project-specific addendum read with the kit's flow.
 flow_addendum = ""                      # e.g. "docs/agents/flow-addendum.md"
 # The guided start: at the first message of an attended session, Claude asks
-# what we're working on, with choices (skills/start). false turns it off;
+# what we're working on, with choices (skills/start), and at each later
+# message it is reminded to plan new work first. false turns both off;
 # /start still works.
 guided_start = true
 # Solo mode: false while no GitHub ruleset protects the base branch, so the
@@ -139,6 +140,16 @@ deploy_commands = []                    # e.g. ["scripts/deploy.sh", "terraform 
 # Test files: where a new skip marker is refused in ticket sessions.
 test_paths = ["**/test_*.py", "**/*_test.py", "**/*.test.*", "**/*.spec.*", "**/*_test.dart", "**/*_test.go", "**/conftest.py"]
 allow_new_skips = false
+# Who writes code: "ticket" (only ticket sessions, WORKFLOW_ROLE=ticket; every
+# other session is a planning session, which writes no code, and the conductor
+# follows a planning session's rules) or "any" (any session). Left out: not
+# answered yet, as before. Keep it a plain line: it is read from that line when
+# the profile doesn't parse. The stricter of this file's answer and the base
+# branch's (as last fetched) counts.
+# code_writers = "ticket"
+# The globs that are code (matched as protected_paths is; a path that is both
+# counts as protected). No defaults.
+# code_paths = ["src/**", "tests/**"]
 
 [sensitive]
 # What must never appear in issues, comments, PR bodies or notifications.
@@ -173,11 +184,19 @@ commands = []                           # e.g. ["pgrep dockerd || (nohup dockerd
 # smoke = "scripts/smoke.sh staging"
 
 [run]
+# Ticket sessions' branches: a session on one counts as a ticket session
+# without WORKFLOW_ROLE (the role fallback). With guard.code_writers set to
+# "ticket", such a branch alone makes a planning session instead.
 ticket_branch = "claude/build-*"        # ticket sessions' branches (role fallback)
 check_in_minutes = 20
 max_parallel = 2
 max_retries = 1
 review_rounds = 3
+review_passes = 2                       # Correctness passes after the last round, then the owner decides
+# The small threshold: a review in which no round ran Spec (the small review)
+# counts only while the diff is within both, counting files outside tests.
+small_max_lines = 60                    # changed lines, added plus removed (1-1000)
+small_max_files = 4                     # changed files, a rename as one (1-50)
 # A run's size, the charter's recommended answer: light, normal (the numbers
 # above) or thorough (docs/charter.md). Attended builds never read it.
 preset = "normal"

@@ -7,10 +7,16 @@ Code's limit; a one-line reminder after that.
 
 The first prompt of an attended session that isn't about the flow already, and
 isn't a command, brings the guided start instead (`skills/start`): Claude asks
-what we're working on, with choices. Anything else passes untouched.
+what we're working on, with choices. Each later prompt like it brings a
+one-line reminder to plan new work before starting on it. Anything else passes
+untouched.
 
 Beside either, the first prompt of an attended session for someone new to
 building brings the kit's glossary and the rule to explain its words once.
+
+In a conductor session, a prompt that names a ticket to build brings a line
+first, beside anything else: the conductor never builds it, and its skill
+hands it to a ticket session (#308).
 """
 
 from __future__ import annotations
@@ -21,21 +27,40 @@ import tempfile
 from pathlib import Path
 
 _NEXT = re.compile(r"(^|\s)/(?:[\w-]+:)?next\b")
-# The commands that plan or build under the flow bring it in on their own:
-# the kit adds rules to what they publish (flow.md sections 2 and 3).
+# The commands that plan, build or run under the flow bring it in on their own:
+# the kit adds rules to what they publish (flow.md sections 2, 3 and 5).
 _COMMAND = re.compile(
-    r"(^|\s)/(?:[\w-]+:)?(?:to-spec|to-tickets|wayfinder|grill-with-docs|triage|implement(?:-spec)?)(?![\w-])"
+    r"(^|\s)/(?:[\w-]+:)?(?:to-spec|to-tickets|wayfinder|grill-with-docs|triage|implement(?:-spec)?|conductor)(?![\w-])"
 )
 _VERB = re.compile(
-    r"\b(implement\w*|build\w*|work(?:ing)?|fix\w*|spec\w*|tickets?|maps?|wayfinder|grill\w*|to-spec|to-tickets|frontier|conductor|unattended)\b",
+    r"\b(implement\w*|build\w*|work(?:ing)?|fix\w*|spec\w*|tickets?|maps?|wayfinder|grill\w*|to-spec|to-tickets|frontier|unattended)\b",
     re.I,
 )
-_MAP = re.compile(r"\bwork(?:ing)?\s+(?:on\s+)?the\s+[\w -]{1,40}\bmap\b|\b(?:start|run|resume|stop)\s+(?:an?\s+|the\s+)?(?:unattended\s+)?run\b|\bconductor\b", re.I)
+# Working on a named map, or asking to start (or restart), run, resume or stop
+# a run or the conductor. Only mentioning the conductor ("why did the conductor
+# stop?", "the conductor run on Friday failed") is not asking: that message gets
+# the guided start like any other. The conductor's own wake ("conductor: wake
+# (…)") still brings the flow to its session.
+_MAP_OR_RUN = re.compile(
+    r"\bwork(?:ing)?\s+(?:on\s+)?the\s+[\w -]{1,40}\bmap\b"
+    r"|\b(?:start|restart|run|resume|stop)[^\S\n]+(?:an?[^\S\n]+|the[^\S\n]+)?(?:unattended[^\S\n]+)?(?:run|conductor)\b"
+    # "run the backlog (or a map) unattended", not "can sessions run unattended?" or
+    # "run the tests unattended"
+    r"|\b(?:start|run)[^\S\n]+(?:the|this|my|our|all|every)[^\S\n]+(?:[\w-]+[^\S\n]+){0,3}?"
+    r"(?:backlog|tickets?|issues?|queue|map)[^\S\n]+unattended\b"
+    # A line that is only the command: "conductor resume", "OK conductor, stop",
+    # "conductor resume #45", or the wake routine's own text. Not "conductor run:
+    # hangs at #12", and not one later in a line ("Thanks. Conductor, resume").
+    r"|(?:^|\n)[^\w\n]*(?:(?:ok|okay|hey|hi|please)[^\w\n]+)?conductor[^\w\n]+(?:please[^\S\n]+)?"
+    r"(?:(?:start|restart|run|resume|stop)(?:[^\S\n]+(?:please|now|the[^\S\n]+run|#\d+|\d\w*(?:-\w+)*))?"
+    r"|wake(?:[^\S\n]+\(a ticket session finished\))?)[^\w\n]*(?=\n|$)",
+    re.I,
+)
 _REF = re.compile(r"(?<![\w/])#\d+\b|/issues/\d+")
 
 
 def wants_flow(prompt: str) -> bool:
-    if _NEXT.search(prompt or "") or _COMMAND.search(prompt or "") or _MAP.search(prompt or ""):
+    if _NEXT.search(prompt or "") or _COMMAND.search(prompt or "") or _MAP_OR_RUN.search(prompt or ""):
         return True
     return bool(_VERB.search(prompt or "") and _REF.search(prompt or ""))
 
@@ -44,14 +69,23 @@ def wants_flow(prompt: str) -> bool:
 # Only a command name: "/home/user/app.py crashes" is a path, not a command.
 _SLASH = re.compile(r"^\s*/[\w:-]+(?=\s|$)")
 
+REMINDER = (
+    "Workflow: if this message asks for new work that isn't part of the plan or ticket already agreed in this "
+    "session, don't start on it: split it into items with a path for each and agree the plan first (the `start` "
+    "skill, step 2). A question, a named issue or one small change with an obvious place may go ahead (on its own "
+    "branch, with a pull request). Replies to your own questions carry on."
+)
+
 START = (
     "This is the first message of the session. Follow the kit's guided start, the `start` skill "
     "(`.claude/skills/start/SKILL.md`, or `pairnexus-workflow:start` as a plugin): first, when `workflow status` finds "
-    "no experience level, ask it as the skill says; then, if this message already asks for "
-    "one clear thing, just do it; if it describes work to plan, or more than one thing, don't start on any of it: "
-    "split it into items with a path for each and agree the plan first; otherwise "
-    "ask \"What are we working on?\" with choices. If the conversation was already under way before this message "
-    "(a resumed session), ignore this."
+    "no experience level, ask it as the skill says. Act on this message straight away only when it is a question, "
+    "names an issue, or asks for one small change with an obvious place (on its own branch, with a pull request). "
+    "If it asks for any other work (a feature, a change, a fix whose cause isn't known, or more than one thing), "
+    "don't start on it: split it into items with a path for each and agree the plan first. Otherwise "
+    "ask \"What are we working on?\" with choices. If the conversation was already under way (a resumed session), "
+    "follow the reminder below instead."
+    "\n\n" + REMINDER
 )
 
 
@@ -78,14 +112,75 @@ def first_prompt(session_id: str) -> bool:
     return _first_time("start", session_id)
 
 
+def _nudged(prompt: str) -> bool:
+    """Whether a prompt may bring the guided start or its reminder: not a
+    command, and not already about the flow."""
+    return not (_SLASH.match(prompt or "") or wants_flow(prompt))
+
+
 def start_for(prompt: str, session_id: str) -> str | None:
     """The guided start's nudge, at the session's first prompt only, unless the
     prompt is a command or already about the flow."""
     if not first_prompt(session_id):
         return None
-    if _SLASH.match(prompt or "") or wants_flow(prompt):
-        return None
-    return START
+    return START if _nudged(prompt) else None
+
+
+def reminder_for(prompt: str) -> str | None:
+    """The reminder, on the same terms as the guided start's nudge. It keeps no
+    marker: the caller asks for it only when `start_for` gave nothing, so every
+    prompt after the first gets it."""
+    return REMINDER if _nudged(prompt) else None
+
+
+# A ticket named to a conductor session (#308): a build verb with the ticket
+# just after it ("build #12", "building tickets 12 and 13", "Let's work on the
+# #12", "pick up owner/repo#12", "build spec #32"), the ticket before "build",
+# "built" or "implement" ("#12 please build it"), or `/next`, `/build-ticket`
+# and `/implement-spec`. The conductor never builds one itself, so its session
+# is told where the ticket goes. "why did the build fail?", "fix 2 typos" or
+# "build 2.0" names no ticket: a bare number counts after "ticket", "issue",
+# "bug" or "spec", or at the end of its clause ("build 12", "build 12 please", "12 and 13"). A
+# ticket in quotes, brackets or bold counts ("build `#12`", "build [#12](…)").
+# Status questions ("is #12 built?") bring the line too: it is worded for a
+# message that may not ask for a build, and a closer pattern isn't worth it.
+# Every repeat is bounded, so a long pasted prompt stays quick.
+_NUMBER_ENDS = (
+    r"[0-9]+\b(?![.,:][0-9])(?=[^\S\n]*(?:(?:please|now|next|today|first|for[^\S\n]+me)\b[^\S\n]*)?"
+    r"(?:[.!?,;:)]|and\b|$))"
+)
+_TICKET = r"(?:(?:[\w.-]{1,39}/[\w.-]{1,100})?[#\uff03][0-9]+\b|https?://[^\s]{0,200}?/issues/[0-9]+|" + _NUMBER_ENDS + ")"
+_NAMED = re.compile(
+    r"\b(?:build(?:s|ing)?|implement(?:s|ing)?|fix(?:es|ing)?|develop(?:s|ing)?|tackle|do"
+    r"|start(?:ing)?|take|handle|kick[^\S\n]+off|work(?:ing)?[^\S\n]+on|start(?:ing)?[^\S\n]+(?:on|with)"
+    r"|pick[^\S\n]+up|go[^\S\n]+ahead[^\S\n]+with)"
+    r"[\s:,(\[*\"'`-]{1,6}(?:the[^\S\n]+)?"
+    r"(?:(?:tickets?|issues?|bugs?|specs?)[\s:]{1,3}[#\uff03]?[0-9]+\b|" + _TICKET + ")"
+    + r"|[#\uff03][0-9]+\b[^\n#\uff03]{0,30}?\b(?:build|built|implement)\b"
+    r"|(?:^|\s)/(?:[\w-]{1,60}:)?(?:build-ticket|implement-spec)\b",
+    re.I | re.M,
+)
+
+CONDUCTOR_LINE = (
+    "This is a conductor session: the conductor never builds a ticket itself. If this message asks for a ticket "
+    "to be built, don't branch for it, write its code or open its pull request, and don't load `next` or "
+    "`build-ticket` for it: follow the `conductor` skill's \"A ticket named in chat\", which hands it to a "
+    "ticket session (with no run in progress, a run scoped to it; during this session's run, the amendment "
+    "\"also #<n>\"). The only code the conductor writes is its own fixes, where the charter grants "
+    "`conductor_fixes`."
+)
+
+
+def names_a_ticket(prompt: str) -> bool:
+    """Whether a prompt names a ticket beside a build verb, or is `/next` or
+    `/build-ticket`: a conductor session's cue for `CONDUCTOR_LINE`, which is
+    worded for a message that may not ask for a build ("don't build #13")."""
+    return bool(_NEXT.search(prompt or "") or _NAMED.search(prompt or ""))
+
+
+def with_conductor_line(ctx: str | None) -> str:
+    """`ctx` with the conductor line first, where Claude reads it before the flow."""
+    return f"{CONDUCTOR_LINE}\n\n{ctx}" if ctx else CONDUCTOR_LINE
 
 
 def flow_files(project: Path, kit_root: Path, addendum: str = "") -> list[Path]:
@@ -101,7 +196,8 @@ def flow_files(project: Path, kit_root: Path, addendum: str = "") -> list[Path]:
 
 FLOW_HEAD = "This request is part of the project's workflow. Follow its flow step by step: skip nothing, and end with its checklist."
 # What the first flow context may take of Claude Code's limit (CONTEXT_LIMIT,
-# below): the rest is room for the glossary's rule and path put in front of it.
+# below): the rest is room for what goes in front of it, the glossary's rule
+# and path in an attended session or the conductor line in a conductor session.
 FLOW_BUDGET = 8_500
 _READ = " Read it now, all of it, before acting: "
 _WHOLE = " All of it is below (from "

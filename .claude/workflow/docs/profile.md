@@ -14,7 +14,7 @@ It sits in `.claude/`, a protected path: ticket sessions can't change it, and a 
 | `owner` | The owner's GitHub login, without `@`: only their approval and comments count in runs | empty (a warning) |
 | `rules` | Files (with an optional `#heading`) holding the project's own rules; reviewers read them | `[]` (the template has `["CLAUDE.md"]`) |
 | `flow_addendum` | A project file read with the kit's flow | empty |
-| `guided_start` | The first-message menu in attended sessions; `/start` works either way | `true` |
+| `guided_start` | The first-message menu in attended sessions, and the reminder at each later message to plan new work first; `/start` works either way | `true` |
 | `ruleset` | `true` or `false`. `false` is **solo mode**: no GitHub ruleset protects the base branch yet, so the kit's own guard is all that stops a change to it. `true` says a ruleset protects it. Write it as a plain `ruleset = true` or `ruleset = false` line, with nothing after it: a shell script reads it without a TOML parser. The template leaves it out; set-up writes it | absent: not set (as before) |
 | `experience` | How much the people working here know, as the project's default: `"new"` (new to building) or `"developer"`. It names no person, and changes only wording and pacing, never what the guard refuses (see "Experience" below) | absent: the person is asked (set-up asks for the project's default; the guided start asks each person whose level is unknown, and a kit update asks for the project's default); until then, unknown |
 
@@ -76,6 +76,8 @@ In the environment and the file, case and spaces around the value don't matter (
 | `deploy_commands` | Commands only the owner, or the conductor under a release grant, may run. A script path matches however it's run; others by their first words. Attended sessions are asked first | `[]` |
 | `test_paths` | Test files where a new skip or focus marker is refused in ticket sessions. A list here also replaces the defaults | common test file patterns |
 | `allow_new_skips` | Allow new skip markers | `false` |
+| `code_writers` | Who writes code: `"ticket"` (only ticket sessions, those whose `WORKFLOW_ROLE` is `ticket`; every other session is a planning session, and the conductor follows a planning session's rules) or `"any"` (any session, as before). Write it as a plain `code_writers = "ticket"` line under `[guard]`: it is read from that line when the profile doesn't parse, and `profile check` warns on any other spelling. The choice that counts is the stricter of this profile's and the base branch's as last fetched (`origin/<base_branch>`, else `origin/HEAD`), so loosening a session's own copy changes nothing until its pull request merges. Any other value is a `profile check` error; `workflow status --json` gives the one that counts, and `writes_code` for the session. The template leaves it out | absent: not answered (as before) |
+| `code_paths` | The globs that are code, matched as `protected_paths` is, relative to the checkout's top level; the base branch's list is joined to this one. A file matching a protected path too is protected, not code (`profile check` lists tracked ones outside `.claude/`). `.workflow/` is never code, nor is an untracked file git ignores; a tracked file is code whatever `.gitignore` says. With `code_writers = "ticket"` and no list, `profile check` warns: this profile names no code | `[]` (no defaults) |
 
 ## `[sensitive]`
 
@@ -112,11 +114,14 @@ An unknown key is an error, so a typo can't quietly turn previews off. In a prof
 
 | Key | What it is | Default |
 |---|---|---|
-| `ticket_branch` | Ticket sessions' branches; a session on one counts as a ticket session even without `WORKFLOW_ROLE` | `claude/build-*` |
+| `ticket_branch` | Ticket sessions' branches. With `code_writers` absent or `"any"`, a session on one counts as a ticket session even without `WORKFLOW_ROLE`; with `code_writers = "ticket"`, such a branch alone makes a planning session, which writes no code | `claude/build-*` |
 | `check_in_minutes` | The conductor's check-in cadence (a run's charter takes 5–240) | `20` |
 | `max_parallel` | Ticket sessions at once (1–16) | `2` |
 | `max_retries` | Retries per ticket before `needs-human` (0–5) | `1` |
 | `review_rounds` | Review panel rounds at most (1–10) | `3` |
+| `review_passes` | The pass cap: Correctness passes at most after the last round (0–10), counting every pass, repeated ones on one commit included, except a pass on a merge of the base after a clean review that left the pull request's changed lines as they were (a pass that rechecks open findings always counts). Past it, `workflow merge-check` says `passes_used_up` and the owner decides; a run's ticket stops at `needs-human` | `2` |
+| `small_max_lines` | The small threshold's lines (1–1000): a review in which no counted round ran Spec (the small review) counts only while the diff's changed lines, added plus removed, in files outside tests (paths matching no suite's `files` glob; with none, every file counts), are at most this. Past it, `workflow merge-check` says `past_small_threshold` and asks for a full-panel round | `60` |
+| `small_max_files` | The small threshold's files (1–50): the same, for the number of changed files outside tests, a rename counting as one | `4` |
 | `preset` | A run's size, `light`, `normal` or `thorough` (`charter.md` §2): only the charter's recommended answer; Normal is the numbers above. Attended builds never read it. Anything else fails `profile check` | `normal` |
 | `ticket_environment` | The claude.ai environment ticket sessions run in, by name: no credentials, `WORKFLOW_ROLE=ticket` | empty (a warning) |
 | `conductor_environment` | The conductor's environment, by name: `WORKFLOW_ROLE=conductor` | empty (a warning) |
@@ -129,7 +134,7 @@ The run's limits and review default from here, through `preset`; each run's char
 
 | Variable | Read by | What it does |
 |---|---|---|
-| `WORKFLOW_ROLE` | The hooks | `ticket`, `conductor` or `attended` (any case). Set it in the claude.ai environment, never in the profile. Any other value counts as `ticket`, the strictest |
+| `WORKFLOW_ROLE` | The hooks, `workflow status` | `ticket`, `conductor` or `attended` (any case). Set it in the claude.ai environment, never in the profile. Any other value counts as `ticket`, the strictest; with `code_writers = "ticket"`, a session with such a value is a planning session instead, which writes no code |
 | `WORKFLOW_EXPERIENCE` | `workflow status` | `new` or `developer`: this person's experience, ahead of `.workflow/experience` and `project.experience` (see "Experience" above). Any other value is skipped with a warning |
 | `WORKFLOW_UPDATE_CHECK` | The session start | `off` (or `0`, `false`, `no`) stops the lookup of the latest kit release |
 | `TMPDIR` | The hooks | Where the hooks keep their per-session markers and the latest-release cache (six hours) |

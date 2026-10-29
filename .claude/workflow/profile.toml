@@ -139,6 +139,8 @@ deploy_commands = []                    # e.g. ["scripts/deploy.sh", "terraform 
 # Test files: where a new skip marker is refused in ticket sessions.
 test_paths = ["**/test_*.py", "**/*_test.py", "**/*.test.*", "**/*.spec.*", "**/*_test.dart", "**/*_test.go", "**/conftest.py"]
 allow_new_skips = false
+code_writers = "ticket"
+code_paths = ["src/**", "tests/**"]
 
 [sensitive]
 # What must never appear in issues, comments, PR bodies or notifications.
