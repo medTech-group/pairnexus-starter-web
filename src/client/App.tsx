@@ -63,6 +63,7 @@ export function App() {
           onChange={(e) => {
             setText(e.target.value);
             setSaved(false);
+            setSaveError(null);
           }}
           readOnly={saving}
           rows={3}
@@ -74,10 +75,18 @@ export function App() {
         <p role="status">{saved ? "Note saved." : ""}</p>
       </form>
 
-      {loadError ? (
-        <p role="alert">{loadError}</p>
-      ) : notes === null ? (
-        <p>Loading your notes…</p>
+      {loadError && (
+        <div className="load-error">
+          <p role="alert">{loadError}</p>
+          <button type="button" onClick={() => void loadNotes()}>
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* A list already shown stays, even if reloading it fails. */}
+      {notes === null ? (
+        !loadError && <p>Loading your notes…</p>
       ) : notes.length === 0 ? (
         <p>No notes yet. Write your first one above.</p>
       ) : (

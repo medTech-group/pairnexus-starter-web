@@ -85,3 +85,11 @@ time {
   margin: 0;
   color: #1a7f37;
 }
+
+.load-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+}

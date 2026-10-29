@@ -164,3 +164,51 @@ test("shows every note again after saving, even if the list failed to load at fi
   await expect(list.getByText(earlier)).toBeVisible();
   await expect(list.getByText("Made-up later note").first()).toBeVisible();
 });
+
+test("says plainly when the list comes back in a shape it doesn't know", async ({ page }) => {
+  await page.route("**/api/notes", (route) => route.fulfill({ json: { notes: [] } }));
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toHaveText(
+    "Your notes couldn't be loaded. Check your connection and try again.",
+  );
+  await expect(page.getByRole("heading", { name: "Notes" })).toBeVisible();
+});
+
+test("keeps the list on screen if reloading it after a save fails", async ({ page }, testInfo) => {
+  const earlier = `Made-up note already listed (${testInfo.project.name} ${Date.now()})`;
+  await openNotes(page);
+  await page.getByLabel("New note").fill(earlier);
+  await page.getByRole("button", { name: "Save note" }).click();
+  const list = page.getByRole("list", { name: "Your notes" });
+  await expect(list.getByText(earlier)).toBeVisible();
+
+  await page.route("**/api/notes", (route) =>
+    route.request().method() === "GET" ? route.abort() : route.continue(),
+  );
+  await page.getByLabel("New note").fill("Made-up note saved while offline for reads");
+  await page.getByRole("button", { name: "Save note" }).click();
+  await expect(page.getByRole("status")).toHaveText("Note saved.");
+  await expect(page.getByRole("alert")).toContainText("Your notes couldn't be loaded");
+  await expect(list.getByText(earlier)).toBeVisible();
+});
+
+test("clears an old message once the note is changed", async ({ page }) => {
+  await openNotes(page);
+  await page.getByRole("button", { name: "Save note" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Write something before saving the note.");
+  await page.getByLabel("New note").fill("Made-up note, fixed");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("offers to try loading the notes again", async ({ page }) => {
+  let fail = true;
+  await page.route("**/api/notes", (route) =>
+    fail ? route.abort() : route.continue(),
+  );
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText("Your notes couldn't be loaded");
+  fail = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("Loading your notes…")).toBeHidden();
+});

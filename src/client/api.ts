@@ -27,12 +27,16 @@ async function request<T>(path: string, init: RequestInit | undefined, failedMes
 
 export async function fetchNotes(): Promise<Note[]> {
   const failed = `Your notes couldn't be loaded. ${OFFLINE}`;
+  let notes: Note[];
   try {
-    return await request<Note[]>("/api/notes", undefined, failed);
+    notes = await request<Note[]>("/api/notes", undefined, failed);
   } catch (e) {
     const message = (e as Error).message;
     throw new Error(message === failed ? failed : `Your notes couldn't be loaded. ${message}`);
   }
+  // Anything but a list isn't an answer this page can show.
+  if (!Array.isArray(notes)) throw new Error(failed);
+  return notes;
 }
 
 export function saveNote(text: string): Promise<Note> {

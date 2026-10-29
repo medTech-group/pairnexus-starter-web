@@ -95,6 +95,11 @@ describe("the notes API", () => {
     await expectNoNotes();
   });
 
+  it("refuses a content type that only starts like JSON", async () => {
+    const res = await addNote({ text: "Made-up note, odd type" }, "application/jsonfoo");
+    expect(res.status).toBe(415);
+  });
+
   it("accepts JSON sent with a charset", async () => {
     const res = await addNote({ text: "Made-up note with a charset" }, "application/json; charset=utf-8");
     expect(res.status).toBe(201);

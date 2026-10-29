@@ -20,7 +20,8 @@ app.post(
   bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => c.json({ error: TOO_LONG }, 413) }),
   async (c) => {
     // Only JSON: a form on another site can't send it, so it can't add notes.
-    if (!c.req.header("Content-Type")?.toLowerCase().startsWith("application/json")) {
+    const mediaType = c.req.header("Content-Type")?.split(";")[0].trim().toLowerCase();
+    if (mediaType !== "application/json") {
       return c.json({ error: "Send the note as JSON." }, 415);
     }
     const body: unknown = await c.req.json().catch(() => null);
